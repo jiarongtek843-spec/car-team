@@ -1,0 +1,65 @@
+import type { Request, Response } from "express";
+import { z } from "zod";
+import { parseIdParam } from "../../common/params.js";
+import * as bookingsService from "./bookings.service.js";
+
+const bookingStatusSchema = z.enum(["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"]);
+
+const legInputSchema = z.object({
+  pickupLocation: z.string().min(1).optional(),
+  dropoffLocation: z.string().min(1).optional(),
+  scheduledAt: z.string().datetime().optional(),
+  driverId: z.coerce.number().int().positive().optional(),
+  notes: z.string().optional()
+});
+
+const createBookingSchema = z.object({
+  girlName: z.string().min(1),
+  carFee: z.coerce.number().int().nonnegative().optional(),
+  notes: z.string().optional(),
+  legs: z.array(legInputSchema).optional()
+});
+
+const updateBookingSchema = z.object({
+  girlName: z.string().min(1).optional(),
+  carFee: z.coerce.number().int().nonnegative().optional(),
+  notes: z.string().optional()
+});
+
+const listQuerySchema = z.object({
+  status: bookingStatusSchema.optional(),
+  search: z.string().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(20)
+});
+
+export async function list(req: Request, res: Response) {
+  const query = listQuerySchema.parse(req.query);
+  const result = await bookingsService.listBookings(query);
+  res.json(result);
+}
+
+export async function getOne(req: Request, res: Response) {
+  const id = parseIdParam(req.params.id);
+  const booking = await bookingsService.getBookingById(id);
+  res.json(booking);
+}
+
+export async function create(req: Request, res: Response) {
+  const input = createBookingSchema.parse(req.body);
+  const booking = await bookingsService.createBooking(input);
+  res.status(201).json(booking);
+}
+
+export async function update(req: Request, res: Response) {
+  const id = parseIdParam(req.params.id);
+  const input = updateBookingSchema.parse(req.body);
+  const booking = await bookingsService.updateBooking(id, input);
+  res.json(booking);
+}
+
+export async function cancel(req: Request, res: Response) {
+  const id = parseIdParam(req.params.id);
+  const booking = await bookingsService.cancelBooking(id);
+  res.json(booking);
+}

@@ -1,0 +1,140 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Button, DatePicker, Divider, Form, Input, InputNumber, message, Modal, Space, Typography } from "antd";
+import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
+import { useCreateBookingMutation } from "../hooks";
+import { parseBookingText } from "../parseBookingText";
+import type { CreateBookingInput } from "../../../types/booking";
+import type { Dayjs } from "dayjs";
+
+interface FormLeg {
+  pickupLocation?: string;
+  dropoffLocation?: string;
+  scheduledAt?: Dayjs;
+}
+
+interface FormValues {
+  girlName: string;
+  carFee?: number;
+  notes?: string;
+  legs?: FormLeg[];
+}
+
+export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [form] = Form.useForm<FormValues>();
+  const [pasteText, setPasteText] = useState("");
+  const navigate = useNavigate();
+  const createBooking = useCreateBookingMutation();
+
+  function handleClose() {
+    form.resetFields();
+    setPasteText("");
+    onClose();
+  }
+
+  function handleParse() {
+    if (!pasteText.trim()) {
+      message.warning("请先贴上派单文字");
+      return;
+    }
+
+    const parsed = parseBookingText(pasteText);
+    if (!parsed.girlName && !parsed.legs) {
+      message.warning("没有识别到任何内容，请检查格式或手动填写");
+      return;
+    }
+
+    form.setFieldsValue({
+      girlName: parsed.girlName,
+      carFee: parsed.carFee,
+      notes: parsed.notes,
+      legs: parsed.legs?.map((leg) => ({
+        pickupLocation: leg.pickupLocation,
+        dropoffLocation: leg.dropoffLocation,
+        scheduledAt: leg.scheduledAt
+      }))
+    });
+    message.success("已识别，请核对下方内容");
+  }
+
+  async function handleSubmit() {
+    const values = await form.validateFields();
+    const input: CreateBookingInput = {
+      girlName: values.girlName,
+      carFee: values.carFee,
+      notes: values.notes || undefined,
+      legs: values.legs?.map((leg) => ({
+        pickupLocation: leg.pickupLocation || undefined,
+        dropoffLocation: leg.dropoffLocation || undefined,
+        scheduledAt: leg.scheduledAt?.toISOString()
+      }))
+    };
+
+    const booking = await createBooking.mutateAsync(input);
+    message.success(`Booking #${booking.id} 建立成功`);
+    handleClose();
+    navigate(`/bookings/${booking.id}`);
+  }
+
+  return (
+    <Modal
+      title="新建 Booking"
+      open={open}
+      onCancel={handleClose}
+      onOk={handleSubmit}
+      confirmLoading={createBooking.isPending}
+      okText="建立"
+      cancelText="取消"
+      width={640}
+    >
+      <Typography.Text strong>智能识别</Typography.Text>
+      <Input.TextArea
+        rows={6}
+        placeholder={"贴上派单文字，例如：\nDate: 20/7\nGirl: Yoyo\nPick up: 8.45pm\nTime: 9 hrs\nCollect: 1060\nAddress:\n====================\nAera Service Residency Apartment\n====================\nCar fee: 130"}
+        value={pasteText}
+        onChange={(e) => setPasteText(e.target.value)}
+        style={{ marginTop: 8, marginBottom: 8 }}
+      />
+      <Button onClick={handleParse}>识别并填入</Button>
+
+      <Divider />
+
+      <Form form={form} layout="vertical">
+        <Form.Item name="girlName" label="Girl 姓名" rules={[{ required: true, message: "请输入 Girl 姓名" }]}>
+          <Input />
+        </Form.Item>
+        <Form.Item name="carFee" label="车费">
+          <InputNumber style={{ width: "100%" }} min={0} />
+        </Form.Item>
+        <Form.Item name="notes" label="备注">
+          <Input.TextArea rows={2} />
+        </Form.Item>
+
+        <Form.List name="legs">
+          {(fields, { add, remove }) => (
+            <>
+              <div style={{ marginBottom: 8, fontWeight: 500 }}>行程 Leg（可选，之后也能再加）</div>
+              {fields.map(({ key, name, ...rest }) => (
+                <Space key={key} align="baseline" style={{ display: "flex", marginBottom: 8 }} wrap>
+                  <Form.Item {...rest} name={[name, "pickupLocation"]}>
+                    <Input placeholder="起点（可留空）" style={{ width: 160 }} />
+                  </Form.Item>
+                  <Form.Item {...rest} name={[name, "dropoffLocation"]}>
+                    <Input placeholder="终点（可留空）" style={{ width: 160 }} />
+                  </Form.Item>
+                  <Form.Item {...rest} name={[name, "scheduledAt"]}>
+                    <DatePicker showTime placeholder="预定时间" />
+                  </Form.Item>
+                  <MinusCircleOutlined onClick={() => remove(name)} />
+                </Space>
+              ))}
+              <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />}>
+                新增 Leg
+              </Button>
+            </>
+          )}
+        </Form.List>
+      </Form>
+    </Modal>
+  );
+}

@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DriverStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum BookingStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum LegStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// 最小版本，只为了让 Leg 能指派司机；完整的司机管理（执照/证件等）是未来独立 Module。
+model Driver {
+  id        Int          @id @default(autoincrement())
+  name      String
+  phone     String?
+  status    DriverStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  legs      Leg[]
+
+  @@map("drivers")
+}
+
+model Booking {
+  id        Int           @id @default(autoincrement())
+  girlName  String        @map("girl_name")
+  carFee    Int?          @map("car_fee")
+  notes     String?
+  status    BookingStatus @default(PENDING)
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+  legs      Leg[]
+
+  @@map("bookings")
+}
+
+model Leg {
+  id              Int       @id @default(autoincrement())
+  bookingId       Int       @map("booking_id")
+  booking         Booking   @relation(fields: [bookingId], references: [id])
+  sequence        Int
+  driverId        Int?      @map("driver_id")
+  driver          Driver?   @relation(fields: [driverId], references: [id])
+  pickupLocation  String?   @map("pickup_location")
+  dropoffLocation String?   @map("dropoff_location")
+  scheduledAt     DateTime? @map("scheduled_at")
+  notes           String?
+  status          LegStatus @default(PENDING)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@unique([bookingId, sequence])
+  @@map("legs")
+}
