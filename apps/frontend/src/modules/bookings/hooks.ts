@@ -83,22 +83,6 @@ export function useAssignDriverMutation(bookingId: number) {
   });
 }
 
-export function useStartLegMutation(bookingId: number) {
-  const apply = useApplyBookingResult();
-  return useMutation({
-    mutationFn: (legId: number) => bookingsApi.startLeg(bookingId, legId),
-    onSuccess: apply
-  });
-}
-
-export function useCompleteLegMutation(bookingId: number) {
-  const apply = useApplyBookingResult();
-  return useMutation({
-    mutationFn: (legId: number) => bookingsApi.completeLeg(bookingId, legId),
-    onSuccess: apply
-  });
-}
-
 export function useCancelLegMutation(bookingId: number) {
   const apply = useApplyBookingResult();
   return useMutation({

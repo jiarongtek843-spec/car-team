@@ -115,7 +115,10 @@ export async function cancelBooking(id: number) {
 
   await prisma.$transaction([
     prisma.leg.updateMany({
-      where: { bookingId: id, status: { in: ["PENDING", "IN_PROGRESS"] } },
+      where: {
+        bookingId: id,
+        status: { in: ["PENDING", "ASSIGNED", "ACCEPTED", "DRIVER_ARRIVING", "PASSENGER_ON_BOARD", "REJECTED"] }
+      },
       data: { status: "CANCELLED" }
     }),
     prisma.booking.update({

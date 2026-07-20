@@ -1,12 +1,26 @@
 export type BookingStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
-export type LegStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+export type LegStatus =
+  | "PENDING"
+  | "ASSIGNED"
+  | "ACCEPTED"
+  | "DRIVER_ARRIVING"
+  | "PASSENGER_ON_BOARD"
+  | "COMPLETED"
+  | "REJECTED"
+  | "CANCELLED";
 export type DriverStatus = "ACTIVE" | "INACTIVE";
 
 export interface Driver {
   id: number;
   name: string;
   phone: string | null;
+  vehiclePlateNumber?: string | null;
+  remark?: string | null;
   status: DriverStatus;
+  username?: string | null;
+  hasActiveLeg?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Leg {
@@ -20,6 +34,13 @@ export interface Leg {
   scheduledAt: string | null;
   notes: string | null;
   status: LegStatus;
+  rejectionReason: string | null;
+  assignedAt: string | null;
+  acceptedAt: string | null;
+  driverArrivingAt: string | null;
+  passengerOnBoardAt: string | null;
+  completedAt: string | null;
+  rejectedAt: string | null;
 }
 
 export interface Booking {

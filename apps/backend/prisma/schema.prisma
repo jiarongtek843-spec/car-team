@@ -7,6 +7,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  ADMIN
+  DRIVER
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
 enum DriverStatus {
   ACTIVE
   INACTIVE
@@ -19,22 +29,48 @@ enum BookingStatus {
   CANCELLED
 }
 
+// Leg 的完整状态机，见 docs/modules/driver-account.md
 enum LegStatus {
   PENDING
-  IN_PROGRESS
+  ASSIGNED
+  ACCEPTED
+  DRIVER_ARRIVING
+  PASSENGER_ON_BOARD
   COMPLETED
+  REJECTED
   CANCELLED
 }
 
-// 最小版本，只为了让 Leg 能指派司机；完整的司机管理（执照/证件等）是未来独立 Module。
+// 登入帐号，Admin 和 Driver 共用同一套。Driver 的业务资料在 Driver model，
+// 两者用 userId 关联；Admin 没有对应的 Driver row。
+model User {
+  id           Int        @id @default(autoincrement())
+  username     String     @unique
+  passwordHash String     @map("password_hash")
+  role         UserRole
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  driver       Driver?
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+// 司机业务资料。userId 关联登入帐号；status 同时也是「是否停用」的唯一依据
+// （沿用 Module 1 就有的栏位，没有另外加一个重复的启用/停用状态）。
 model Driver {
-  id        Int          @id @default(autoincrement())
-  name      String
-  phone     String?
-  status    DriverStatus @default(ACTIVE)
-  createdAt DateTime     @default(now()) @map("created_at")
-  updatedAt DateTime     @updatedAt @map("updated_at")
-  legs      Leg[]
+  id                 Int          @id @default(autoincrement())
+  userId             Int?         @unique @map("user_id")
+  user               User?        @relation(fields: [userId], references: [id])
+  name               String
+  phone              String?
+  vehiclePlateNumber String?      @map("vehicle_plate_number")
+  remark             String?
+  status             DriverStatus @default(ACTIVE)
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  legs               Leg[]
 
   @@map("drivers")
 }
@@ -64,9 +100,32 @@ model Leg {
   scheduledAt     DateTime? @map("scheduled_at")
   notes           String?
   status          LegStatus @default(PENDING)
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  rejectionReason   String?   @map("rejection_reason")
+  assignedAt        DateTime? @map("assigned_at")
+  acceptedAt        DateTime? @map("accepted_at")
+  driverArrivingAt  DateTime? @map("driver_arriving_at")
+  passengerOnBoardAt DateTime? @map("passenger_on_board_at")
+  completedAt       DateTime? @map("completed_at")
+  rejectedAt         DateTime? @map("rejected_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([bookingId, sequence])
   @@map("legs")
+}
+
+// 所有重要操作（帐号、司机资料、Leg 状态变更）都写一笔，方便追查是谁在什么时候做了什么。
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  actorUserId Int?     @map("actor_user_id")
+  actorUser   User?    @relation(fields: [actorUserId], references: [id])
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    Int      @map("entity_id")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
 }

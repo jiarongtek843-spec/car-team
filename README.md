@@ -19,6 +19,28 @@ npm run dev:frontend
 
 Backend 需要 `apps/backend/.env`（参考 `apps/backend/.env.example`），指向本地 PostgreSQL。
 
+首次设置数据库后，跑一次种子资料（建立测试帐号）：
+
+```bash
+npm run db:seed --workspace=apps/backend
+```
+
+跑测试：
+
+```bash
+npm run test --workspace=apps/backend
+```
+
+### 本地开发测试帐号（仅限本地开发环境）
+
+> ⚠️ 以下密码只用于本地开发种子资料，**不能**用在正式环境。正式环境的 Admin/Driver 密码要另外设定。
+
+| 帐号 | 密码 | 角色 |
+|---|---|---|
+| `admin` | `DevPass123!` | ADMIN |
+| `driver01` | `DevPass123!` | DRIVER |
+| `driver02` | `DevPass123!` | DRIVER |
+
 ## 目录结构
 
 ```

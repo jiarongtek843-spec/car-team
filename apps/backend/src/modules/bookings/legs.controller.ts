@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { parseIdParam } from "../../common/params.js";
 import * as legsService from "./legs.service.js";
+import { writeAuditLog } from "../../common/audit.js";
 
 const addLegSchema = z.object({
   pickupLocation: z.string().min(1).optional(),
@@ -47,24 +48,29 @@ export async function assign(req: Request, res: Response) {
   const { bookingId, legId } = parseIds(req);
   const { driverId } = assignDriverSchema.parse(req.body);
   const booking = await legsService.assignDriver(bookingId, legId, driverId);
-  res.json(booking);
-}
 
-export async function start(req: Request, res: Response) {
-  const { bookingId, legId } = parseIds(req);
-  const booking = await legsService.startLeg(bookingId, legId);
-  res.json(booking);
-}
+  await writeAuditLog({
+    actorUserId: req.authUser?.id ?? null,
+    action: "LEG_ASSIGN",
+    entityType: "Leg",
+    entityId: legId,
+    metadata: { driverId }
+  });
 
-export async function complete(req: Request, res: Response) {
-  const { bookingId, legId } = parseIds(req);
-  const booking = await legsService.completeLeg(bookingId, legId);
   res.json(booking);
 }
 
 export async function cancel(req: Request, res: Response) {
   const { bookingId, legId } = parseIds(req);
   const booking = await legsService.cancelLeg(bookingId, legId);
+
+  await writeAuditLog({
+    actorUserId: req.authUser?.id ?? null,
+    action: "LEG_CANCEL",
+    entityType: "Leg",
+    entityId: legId
+  });
+
   res.json(booking);
 }
 

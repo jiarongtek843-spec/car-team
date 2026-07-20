@@ -6,6 +6,7 @@ import { ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import "./index.css";
 import App from "./App.tsx";
+import { AuthProvider } from "./modules/auth/AuthContext";
 
 const queryClient = new QueryClient();
 
@@ -14,7 +15,9 @@ createRoot(document.getElementById("root")!).render(
     <ConfigProvider locale={zhCN}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <App />
+          <AuthProvider>
+            <App />
+          </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </ConfigProvider>

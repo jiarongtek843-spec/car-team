@@ -44,12 +44,7 @@ Booking 的 status 不是手动设定的字段，是每次 Leg 状态变动时�
 
 ## Leg Status Flow
 
-```
-PENDING --(start，需已指派 driver)--> IN_PROGRESS --(complete)--> COMPLETED
-PENDING / IN_PROGRESS --(cancel)--> CANCELLED
-```
-
-`COMPLETED`、`CANCELLED` 为终止态，不可再变动。没有指派 Driver 的 Leg 不能 start。
+> Module 2（Driver Account）上线后，Leg 状态机改成 Driver 自己在工作页操作接受/前往/上车/完成，Admin 只负责指派/重新指派/取消，细节见 [driver-account.md](./driver-account.md)。这里列出的 `PENDING → IN_PROGRESS → COMPLETED` 是 Module 1 当时的简化版，已经不是目前系统的实际行为。
 
 ## API
 
@@ -62,9 +57,7 @@ PENDING / IN_PROGRESS --(cancel)--> CANCELLED
 - `POST /api/bookings/:id/cancel` — 取消整张 Booking（级联取消未完成的 Leg）
 - `POST /api/bookings/:id/legs` — 新增 Leg（sequence 自动 = 目前最大值 + 1）；Booking 为 `CANCELLED` 时不可新增
 - `PATCH /api/bookings/:id/legs/:legId` — 改 Leg 资料，仅限 leg 尚未 `COMPLETED`/`CANCELLED`
-- `POST /api/bookings/:id/legs/:legId/assign` — 指派/更换 driver
-- `POST /api/bookings/:id/legs/:legId/start` — PENDING → IN_PROGRESS
-- `POST /api/bookings/:id/legs/:legId/complete` — IN_PROGRESS → COMPLETED
+- `POST /api/bookings/:id/legs/:legId/assign` — 指派/重新指派 driver（细节见 [driver-account.md](./driver-account.md)）
 - `POST /api/bookings/:id/legs/:legId/cancel` — 取消单一 Leg
 - `DELETE /api/bookings/:id/legs/:legId` — 仅限 `PENDING` 状态，直接删除（尚未发生的事，不需要保留历史）
 - `GET /api/drivers?status=` — 列表（给指派用的下拉选单）
@@ -112,17 +105,17 @@ Car fee: 130
 用户已实际测试过以下流程，确认没有问题：
 
 - Booking / Leg / Driver 的建立、查看、编辑
-- Booking status 依 Leg 自动推导（PENDING/IN_PROGRESS/COMPLETED），取消会级联取消未完成的 Leg
-- 指派司机（含 Modal 内快速新增司机）
-- Leg 的开始/完成/取消/删除操作与对应的业务规则限制
+- Booking status 依 Leg 自动推导，取消会级联取消未完成的 Leg
+- 指派司机（含 Modal 内快速新增司机，不含登入帐号）
+- Leg 的指派/重新指派/取消/删除操作与对应的业务规则限制
 - 智能识别贴文自动填入新建 Booking 表单
 - Leg 起点/终点可留空，符合「起点固定不用记」的业务实际情况
 
+Module 2 上线后新增：Admin/Driver 登入权限、Driver 在自己的工作页处理 Leg（详见 [driver-account.md](./driver-account.md)）。
+
 ## 已知限制
 
-- Driver 目前只有最小栏位（name/phone/status），没有执照、证件到期等完整司机管理功能
-- 没有 Login/权限控管，任何能打开网页的人都能新增/修改/取消 Booking
-- 没有自动化测试（unit/integration test），目前靠手动跑过一遍流程验证
 - 智能识别贴文只接在「新建 Booking」，还没接到「新增 Leg」（例如已有 Booking 想再贴一段追加行程）
 - 车费（`carFee`）是单一数字栏位，Collect 金额只是备注文字，都还没有统计/报表功能
 - 客户身份完全不记录（只用地址定位），如果以后需要追踪客户历史会是另一个 Module
+- 其余（Driver 完整资料、登入权限、自动化测试）见 [driver-account.md](./driver-account.md) 的已知限制

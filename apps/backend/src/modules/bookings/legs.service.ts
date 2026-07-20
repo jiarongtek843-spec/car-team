@@ -1,6 +1,25 @@
 import { prisma } from "../../config/prisma.js";
 import { ConflictError, NotFoundError } from "../../common/errors.js";
 import { recalculateBookingStatus } from "./bookings.service.js";
+import { applyLegTransition } from "./legTransition.js";
+
+const REASSIGNABLE_STATUSES = [
+  "PENDING",
+  "ASSIGNED",
+  "ACCEPTED",
+  "DRIVER_ARRIVING",
+  "PASSENGER_ON_BOARD",
+  "REJECTED"
+] as const;
+
+const CANCELLABLE_STATUSES = [
+  "PENDING",
+  "ASSIGNED",
+  "ACCEPTED",
+  "DRIVER_ARRIVING",
+  "PASSENGER_ON_BOARD",
+  "REJECTED"
+] as const;
 
 async function getOwnedLeg(bookingId: number, legId: number) {
   const leg = await prisma.leg.findUnique({ where: { id: legId } });
@@ -73,54 +92,47 @@ export async function updateLeg(bookingId: number, legId: number, input: UpdateL
   return recalculateBookingStatus(bookingId);
 }
 
+/**
+ * 首次指派或重新指派都走这里。重新指派会把之前的接受/抵达/上车/拒绝纪录清空，
+ * 让新司机从 ASSIGNED 重新开始整个流程。
+ */
 export async function assignDriver(bookingId: number, legId: number, driverId: number) {
-  const leg = await getOwnedLeg(bookingId, legId);
-  if (leg.status === "COMPLETED" || leg.status === "CANCELLED") {
-    throw new ConflictError(`Leg is already ${leg.status} and cannot be reassigned`);
-  }
+  await getOwnedLeg(bookingId, legId);
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) {
     throw new NotFoundError(`Driver ${driverId} not found`);
   }
-
-  await prisma.leg.update({ where: { id: legId }, data: { driverId } });
-
-  return recalculateBookingStatus(bookingId);
-}
-
-export async function startLeg(bookingId: number, legId: number) {
-  const leg = await getOwnedLeg(bookingId, legId);
-  if (leg.status !== "PENDING") {
-    throw new ConflictError(`Leg must be PENDING to start (currently ${leg.status})`);
-  }
-  if (!leg.driverId) {
-    throw new ConflictError("Cannot start a leg without an assigned driver");
+  if (driver.status !== "ACTIVE") {
+    throw new ConflictError("Cannot assign a disabled driver");
   }
 
-  await prisma.leg.update({ where: { id: legId }, data: { status: "IN_PROGRESS" } });
-
-  return recalculateBookingStatus(bookingId);
-}
-
-export async function completeLeg(bookingId: number, legId: number) {
-  const leg = await getOwnedLeg(bookingId, legId);
-  if (leg.status !== "IN_PROGRESS") {
-    throw new ConflictError(`Leg must be IN_PROGRESS to complete (currently ${leg.status})`);
-  }
-
-  await prisma.leg.update({ where: { id: legId }, data: { status: "COMPLETED" } });
+  await applyLegTransition({
+    legId,
+    fromStatuses: [...REASSIGNABLE_STATUSES],
+    data: {
+      driverId,
+      status: "ASSIGNED",
+      assignedAt: new Date(),
+      acceptedAt: null,
+      driverArrivingAt: null,
+      passengerOnBoardAt: null,
+      rejectedAt: null,
+      rejectionReason: null
+    }
+  });
 
   return recalculateBookingStatus(bookingId);
 }
 
 export async function cancelLeg(bookingId: number, legId: number) {
-  const leg = await getOwnedLeg(bookingId, legId);
-  if (leg.status !== "PENDING" && leg.status !== "IN_PROGRESS") {
-    throw new ConflictError(`Leg is already ${leg.status}`);
-  }
+  await getOwnedLeg(bookingId, legId);
 
-  await prisma.leg.update({ where: { id: legId }, data: { status: "CANCELLED" } });
+  await applyLegTransition({
+    legId,
+    fromStatuses: [...CANCELLABLE_STATUSES],
+    data: { status: "CANCELLED" }
+  });
 
   return recalculateBookingStatus(bookingId);
 }

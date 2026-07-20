@@ -60,14 +60,6 @@ export function assignDriver(bookingId: number, legId: number, driverId: number)
   return http.post<Booking>(`/api/bookings/${bookingId}/legs/${legId}/assign`, { driverId });
 }
 
-export function startLeg(bookingId: number, legId: number) {
-  return http.post<Booking>(`/api/bookings/${bookingId}/legs/${legId}/start`);
-}
-
-export function completeLeg(bookingId: number, legId: number) {
-  return http.post<Booking>(`/api/bookings/${bookingId}/legs/${legId}/complete`);
-}
-
 export function cancelLeg(bookingId: number, legId: number) {
   return http.post<Booking>(`/api/bookings/${bookingId}/legs/${legId}/cancel`);
 }

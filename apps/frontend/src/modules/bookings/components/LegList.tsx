@@ -3,12 +3,22 @@ import { List, Popconfirm, Space, Typography, message } from "antd";
 import type { Leg } from "../../../types/booking";
 import { LegStatusTag } from "./StatusTags";
 import { AssignDriverModal } from "./AssignDriverModal";
-import { useCancelLegMutation, useCompleteLegMutation, useDeleteLegMutation, useStartLegMutation } from "../hooks";
+import { useCancelLegMutation, useDeleteLegMutation } from "../hooks";
+
+const REASSIGNABLE: Leg["status"][] = ["PENDING", "ASSIGNED", "ACCEPTED", "DRIVER_ARRIVING", "PASSENGER_ON_BOARD", "REJECTED"];
+const CANCELLABLE: Leg["status"][] = ["PENDING", "ASSIGNED", "ACCEPTED", "DRIVER_ARRIVING", "PASSENGER_ON_BOARD", "REJECTED"];
+
+const STAGE_TIMESTAMPS: { key: keyof Leg; label: string }[] = [
+  { key: "assignedAt", label: "指派" },
+  { key: "acceptedAt", label: "接受" },
+  { key: "driverArrivingAt", label: "前往中" },
+  { key: "passengerOnBoardAt", label: "已上车" },
+  { key: "completedAt", label: "完成" },
+  { key: "rejectedAt", label: "拒绝" }
+];
 
 export function LegList({ bookingId, legs }: { bookingId: number; legs: Leg[] }) {
   const [assigningLegId, setAssigningLegId] = useState<number | null>(null);
-  const startLeg = useStartLegMutation(bookingId);
-  const completeLeg = useCompleteLegMutation(bookingId);
   const cancelLeg = useCancelLegMutation(bookingId);
   const deleteLeg = useDeleteLegMutation(bookingId);
 
@@ -19,38 +29,12 @@ export function LegList({ bookingId, legs }: { bookingId: number; legs: Leg[] })
         renderItem={(leg) => (
           <List.Item
             actions={[
-              (leg.status === "PENDING" || leg.status === "IN_PROGRESS") && (
+              REASSIGNABLE.includes(leg.status) && (
                 <a key="assign" onClick={() => setAssigningLegId(leg.id)}>
-                  {leg.driver ? "更换司机" : "指派司机"}
+                  {leg.driver ? "重新指派" : "指派司机"}
                 </a>
               ),
-              leg.status === "PENDING" && (
-                <a
-                  key="start"
-                  onClick={async () => {
-                    if (!leg.driverId) {
-                      message.warning("请先指派司机才能开始行程");
-                      return;
-                    }
-                    await startLeg.mutateAsync(leg.id);
-                    message.success("已开始行程");
-                  }}
-                >
-                  开始
-                </a>
-              ),
-              leg.status === "IN_PROGRESS" && (
-                <a
-                  key="complete"
-                  onClick={async () => {
-                    await completeLeg.mutateAsync(leg.id);
-                    message.success("行程已完成");
-                  }}
-                >
-                  完成
-                </a>
-              ),
-              (leg.status === "PENDING" || leg.status === "IN_PROGRESS") && (
+              CANCELLABLE.includes(leg.status) && (
                 <Popconfirm
                   key="cancel"
                   title="确定要取消这段行程吗？"
@@ -94,6 +78,14 @@ export function LegList({ bookingId, legs }: { bookingId: number; legs: Leg[] })
                     司机：{leg.driver ? leg.driver.name : "未指派"}
                   </Typography.Text>
                   {leg.notes && <Typography.Text type="secondary">备注：{leg.notes}</Typography.Text>}
+                  {leg.status === "REJECTED" && leg.rejectionReason && (
+                    <Typography.Text type="danger">拒绝原因：{leg.rejectionReason}</Typography.Text>
+                  )}
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {STAGE_TIMESTAMPS.filter((stage) => leg[stage.key])
+                      .map((stage) => `${stage.label} ${new Date(leg[stage.key] as string).toLocaleString()}`)
+                      .join(" · ")}
+                  </Typography.Text>
                 </Space>
               }
             />
