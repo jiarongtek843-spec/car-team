@@ -136,7 +136,31 @@ model Driver {
   settlements        Settlement[]
   collections        Collection[]
 
+  // GPS 上线状态。isOnline 是 Driver 自己按 Go Online/Go Offline 设的旗标；实际显示给 Admin 的
+  // presence（是否 Connection Lost / 自动 Offline）由 gps.service.ts 依据 DriverLocation 的
+  // 最后上传时间即时算出，不是只看这个栏位——见 docs/modules/gps.md。
+  isOnline     Boolean         @default(false) @map("is_online")
+  onlineSince  DateTime?       @map("online_since")
+  location     DriverLocation?
+
   @@map("drivers")
+}
+
+// 只存「最新一笔」定位，不做轨迹历史（第一版明确不需要轨迹回放）。每次上传直接覆盖。
+// recordedAt 是装置端上报的时间，receivedAt 是 Backend 收到的时间——heartbeat/自动离线判断
+// 一律用 receivedAt，避免装置时间不准影响判断。
+model DriverLocation {
+  driverId       Int      @id @map("driver_id")
+  driver         Driver   @relation(fields: [driverId], references: [id])
+  latitude       Float
+  longitude      Float
+  speed          Float?
+  heading        Float?
+  batteryPercent Int?     @map("battery_percent")
+  recordedAt     DateTime @map("recorded_at")
+  receivedAt     DateTime @updatedAt @map("received_at")
+
+  @@map("driver_locations")
 }
 
 // 单例设定表，只会有一笔（id=1）。新 Booking 建立时读这里当默认抽成，

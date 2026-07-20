@@ -14,6 +14,8 @@ import { settlementRouter } from "./modules/settlement/settlement.routes.js";
 import { driverSettlementRouter } from "./modules/settlement/driverSettlement.routes.js";
 import { collectionRouter } from "./modules/collections/collection.routes.js";
 import { driverCollectionRouter } from "./modules/collections/driverCollection.routes.js";
+import { gpsRouter } from "./modules/gps/gps.routes.js";
+import { driverPresenceRouter } from "./modules/gps/driverPresence.routes.js";
 import { errorHandler } from "./common/errorHandler.js";
 import { uploadsRoot } from "./common/upload.js";
 
@@ -37,5 +39,7 @@ app.use("/api/admin/settlements", settlementRouter);
 app.use("/api/driver/settlements", driverSettlementRouter);
 app.use("/api/admin/collections", collectionRouter);
 app.use("/api/driver/collections", driverCollectionRouter);
+app.use("/api/admin/gps", gpsRouter);
+app.use("/api/driver/presence", driverPresenceRouter);
 
 app.use(errorHandler);

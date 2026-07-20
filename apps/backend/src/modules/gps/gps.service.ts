@@ -1,0 +1,294 @@
+import type { LegStatus } from "@prisma/client";
+import { prisma } from "../../config/prisma.js";
+import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
+import { writeAuditLog, type AuditActor } from "../../common/audit.js";
+import { ACTIVE_LEG_STATUSES } from "../bookings/bookings.status.js";
+
+/** 超过这个秒数没收到新的 GPS 上传，显示 Connection Lost（但还不会自动 Offline）。 */
+export const CONNECTION_LOST_THRESHOLD_SECONDS = 30;
+/** 超过这个秒数没收到新的 GPS 上传，视为自动 Offline。 */
+export const AUTO_OFFLINE_THRESHOLD_SECONDS = 120;
+
+/**
+ * Driver 目前状态。OFFLINE/CONNECTION_LOST/ONLINE 是依据最后一次 GPS 上传时间即时算出的，
+ * 不是存在 DB 里的栏位；如果这个 Driver 手上有正在进行的 Leg，用 Leg 的状态取代单纯的 ONLINE，
+ * 这样 Admin 一眼就能看到「这个人现在在忙什么」而不用切两个画面对照。BREAK 是预留栏位，
+ * 目前没有任何流程会产生这个状态。
+ */
+export type DriverPresenceStatus =
+  | "OFFLINE"
+  | "CONNECTION_LOST"
+  | "ONLINE"
+  | "ASSIGNED"
+  | "ACCEPTED"
+  | "DRIVER_ARRIVING"
+  | "PASSENGER_ON_BOARD"
+  | "COMPLETED"
+  | "BREAK";
+
+interface ComputePresenceInput {
+  isOnline: boolean;
+  onlineSince: Date | null;
+  locationReceivedAt: Date | null;
+  activeLegStatus: LegStatus | null;
+  now?: Date;
+}
+
+interface PresenceResult {
+  status: DriverPresenceStatus;
+  /** 距离最后一次收到 GPS 的秒数；从来没上传过、或目前是 Offline 就是 null。 */
+  secondsSinceUpdate: number | null;
+}
+
+/**
+ * 纯函数，方便写单元测试。GPS 上传失败/装置离线不会抛错、不会影响 Booking——这里只是
+ * 单纯地依据「最后一次收到 GPS 的时间」推导出目前该显示什么状态，跟 Leg 的业务逻辑完全分开算，
+ * 只在最后用 activeLegStatus 覆盖显示文字。
+ */
+export function computePresenceStatus(input: ComputePresenceInput): PresenceResult {
+  const now = input.now ?? new Date();
+
+  if (!input.isOnline) {
+    return { status: "OFFLINE", secondsSinceUpdate: null };
+  }
+
+  const referenceTime = input.locationReceivedAt ?? input.onlineSince;
+  const secondsSinceUpdate = referenceTime
+    ? Math.max(0, Math.floor((now.getTime() - referenceTime.getTime()) / 1000))
+    : null;
+
+  if (secondsSinceUpdate !== null && secondsSinceUpdate > AUTO_OFFLINE_THRESHOLD_SECONDS) {
+    return { status: "OFFLINE", secondsSinceUpdate };
+  }
+
+  if (secondsSinceUpdate !== null && secondsSinceUpdate > CONNECTION_LOST_THRESHOLD_SECONDS) {
+    return { status: "CONNECTION_LOST", secondsSinceUpdate };
+  }
+
+  if (input.activeLegStatus) {
+    return { status: input.activeLegStatus as DriverPresenceStatus, secondsSinceUpdate };
+  }
+
+  return { status: "ONLINE", secondsSinceUpdate };
+}
+
+export async function goOnline(driverId: number, actor: AuditActor) {
+  const driver = await prisma.driver.findUnique({ where: { id: driverId } });
+  if (!driver) {
+    throw new NotFoundError(`Driver ${driverId} not found`);
+  }
+
+  const updated = await prisma.driver.update({
+    where: { id: driverId },
+    data: { isOnline: true, onlineSince: new Date() }
+  });
+
+  await writeAuditLog({
+    actor,
+    action: "DRIVER_WENT_ONLINE",
+    entityType: "Driver",
+    entityId: driverId,
+    afterData: { isOnline: true }
+  });
+
+  return updated;
+}
+
+export async function goOffline(driverId: number, actor: AuditActor) {
+  const driver = await prisma.driver.findUnique({ where: { id: driverId } });
+  if (!driver) {
+    throw new NotFoundError(`Driver ${driverId} not found`);
+  }
+
+  const updated = await prisma.driver.update({
+    where: { id: driverId },
+    data: { isOnline: false, onlineSince: null }
+  });
+
+  await writeAuditLog({
+    actor,
+    action: "DRIVER_WENT_OFFLINE",
+    entityType: "Driver",
+    entityId: driverId,
+    afterData: { isOnline: false }
+  });
+
+  return updated;
+}
+
+interface RecordPingInput {
+  latitude: number;
+  longitude: number;
+  speed?: number;
+  heading?: number;
+  batteryPercent?: number;
+  recordedAt?: string;
+}
+
+/**
+ * GPS 上传独立于 Booking/Leg，这里刻意不碰任何 Leg/Wallet 相关的表——上传失败或 Driver
+ * 忘记上线都不该挡住 Complete Leg 这类核心业务操作。只有「必须先 Go Online 才能上传定位」
+ * 这一条规则，避免 Offline 状态下还留着一份「看起来是最新」的定位资料造成误判。
+ */
+export async function recordPing(driverId: number, input: RecordPingInput) {
+  if (input.latitude < -90 || input.latitude > 90) {
+    throw new ValidationError("latitude must be between -90 and 90");
+  }
+  if (input.longitude < -180 || input.longitude > 180) {
+    throw new ValidationError("longitude must be between -180 and 180");
+  }
+
+  const driver = await prisma.driver.findUnique({ where: { id: driverId } });
+  if (!driver) {
+    throw new NotFoundError(`Driver ${driverId} not found`);
+  }
+  if (!driver.isOnline) {
+    throw new ConflictError("Driver must go online before uploading GPS location");
+  }
+
+  return prisma.driverLocation.upsert({
+    where: { driverId },
+    create: {
+      driverId,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      speed: input.speed,
+      heading: input.heading,
+      batteryPercent: input.batteryPercent,
+      recordedAt: input.recordedAt ? new Date(input.recordedAt) : new Date()
+    },
+    update: {
+      latitude: input.latitude,
+      longitude: input.longitude,
+      speed: input.speed,
+      heading: input.heading,
+      batteryPercent: input.batteryPercent,
+      recordedAt: input.recordedAt ? new Date(input.recordedAt) : new Date()
+    }
+  });
+}
+
+const driverSummarySelect = {
+  id: true,
+  name: true,
+  vehiclePlateNumber: true,
+  isOnline: true,
+  onlineSince: true
+} as const;
+
+function toPresencePayload(
+  driver: { id: number; name: string; vehiclePlateNumber: string | null; isOnline: boolean; onlineSince: Date | null },
+  location: {
+    latitude: number;
+    longitude: number;
+    speed: number | null;
+    heading: number | null;
+    batteryPercent: number | null;
+    recordedAt: Date;
+    receivedAt: Date;
+  } | null,
+  activeLeg: { id: number; bookingId: number; sequence: number; status: LegStatus; booking: { girlName: string } } | null,
+  now: Date
+) {
+  const { status, secondsSinceUpdate } = computePresenceStatus({
+    isOnline: driver.isOnline,
+    onlineSince: driver.onlineSince,
+    locationReceivedAt: location?.receivedAt ?? null,
+    activeLegStatus: activeLeg?.status ?? null,
+    now
+  });
+
+  return {
+    driver: { id: driver.id, name: driver.name, vehiclePlateNumber: driver.vehiclePlateNumber },
+    status,
+    secondsSinceUpdate,
+    location: location
+      ? {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          speed: location.speed,
+          heading: location.heading,
+          batteryPercent: location.batteryPercent,
+          recordedAt: location.recordedAt,
+          receivedAt: location.receivedAt
+        }
+      : null,
+    activeLeg: activeLeg
+      ? {
+          id: activeLeg.id,
+          bookingId: activeLeg.bookingId,
+          sequence: activeLeg.sequence,
+          status: activeLeg.status,
+          bookingGirlName: activeLeg.booking.girlName
+        }
+      : null
+  };
+}
+
+/** 每次读取时顺手把「已经超过自动离线门槛、但 DB 里 isOnline 还是 true」的 Driver 打回 false。 */
+async function selfHealStaleOnlineDrivers(driverIds: number[]) {
+  if (driverIds.length === 0) return;
+  await prisma.driver.updateMany({
+    where: { id: { in: driverIds }, isOnline: true },
+    data: { isOnline: false, onlineSince: null }
+  });
+}
+
+export async function listDriverPresence(onlineOnly: boolean) {
+  const now = new Date();
+
+  const drivers = await prisma.driver.findMany({
+    where: { status: "ACTIVE" },
+    select: { ...driverSummarySelect, location: true }
+  });
+
+  const legs = await prisma.leg.findMany({
+    where: { driverId: { in: drivers.map((d) => d.id) }, status: { in: ACTIVE_LEG_STATUSES } },
+    include: { booking: { select: { girlName: true } } },
+    orderBy: { updatedAt: "desc" }
+  });
+  const latestActiveLegByDriver = new Map<number, (typeof legs)[number]>();
+  for (const leg of legs) {
+    if (leg.driverId !== null && !latestActiveLegByDriver.has(leg.driverId)) {
+      latestActiveLegByDriver.set(leg.driverId, leg);
+    }
+  }
+
+  const results = drivers.map((driver) =>
+    toPresencePayload(driver, driver.location, latestActiveLegByDriver.get(driver.id) ?? null, now)
+  );
+
+  const staleOnlineDriverIds = results.filter((r) => r.status === "OFFLINE").map((r) => r.driver.id);
+  const staleButFlaggedOnline = drivers
+    .filter((d) => d.isOnline && staleOnlineDriverIds.includes(d.id))
+    .map((d) => d.id);
+  await selfHealStaleOnlineDrivers(staleButFlaggedOnline);
+
+  return onlineOnly ? results.filter((r) => r.status !== "OFFLINE") : results;
+}
+
+export async function getDriverPresence(driverId: number) {
+  const now = new Date();
+
+  const driver = await prisma.driver.findUnique({
+    where: { id: driverId },
+    select: { ...driverSummarySelect, location: true }
+  });
+  if (!driver) {
+    throw new NotFoundError(`Driver ${driverId} not found`);
+  }
+
+  const activeLeg = await prisma.leg.findFirst({
+    where: { driverId, status: { in: ACTIVE_LEG_STATUSES } },
+    include: { booking: { select: { girlName: true } } },
+    orderBy: { updatedAt: "desc" }
+  });
+
+  const payload = toPresencePayload(driver, driver.location, activeLeg, now);
+
+  if (payload.status === "OFFLINE" && driver.isOnline) {
+    await selfHealStaleOnlineDrivers([driver.id]);
+  }
+
+  return payload;
+}

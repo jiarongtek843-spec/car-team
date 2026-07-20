@@ -15,6 +15,7 @@ import { MyEarningsPage } from "./modules/driverWallet/MyEarningsPage";
 import { DriverSettlementHistoryPage } from "./modules/driverWallet/DriverSettlementHistoryPage";
 import { AdminCollectionPage } from "./modules/collections/AdminCollectionPage";
 import { DriverCollectionPage } from "./modules/collections/DriverCollectionPage";
+import { AdminGpsDashboardPage } from "./modules/gps/AdminGpsDashboardPage";
 
 function App() {
   return (
@@ -35,6 +36,7 @@ function App() {
         <Route path="/settlements/daily" element={<DailySettlementPage />} />
         <Route path="/settlements/history" element={<SettlementHistoryPage />} />
         <Route path="/collections" element={<AdminCollectionPage />} />
+        <Route path="/gps" element={<AdminGpsDashboardPage />} />
         <Route path="/health" element={<HealthCheckPage />} />
       </Route>
 

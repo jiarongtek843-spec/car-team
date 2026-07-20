@@ -10,7 +10,8 @@ const NAV_ITEMS = [
   { key: "/wallet", label: <Link to="/wallet">Wallet</Link> },
   { key: "/settlements/daily", label: <Link to="/settlements/daily">Daily Settlement</Link> },
   { key: "/settlements/history", label: <Link to="/settlements/history">Settlement History</Link> },
-  { key: "/collections", label: <Link to="/collections">Collection</Link> }
+  { key: "/collections", label: <Link to="/collections">Collection</Link> },
+  { key: "/gps", label: <Link to="/gps">GPS</Link> }
 ];
 
 export function AppLayout() {

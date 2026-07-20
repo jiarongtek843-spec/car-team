@@ -6,6 +6,9 @@ import { AssignDriverModal } from "./AssignDriverModal";
 import { EditAllocationModal } from "./EditAllocationModal";
 import { useCancelLegMutation, useDeleteLegMutation } from "../hooks";
 import { formatCents } from "../../../lib/money";
+import { DriverPresenceBadge } from "./DriverPresenceBadge";
+
+const PRESENCE_TRACKED_STATUSES: Leg["status"][] = ["ASSIGNED", "ACCEPTED", "DRIVER_ARRIVING", "PASSENGER_ON_BOARD"];
 
 const REASSIGNABLE: Leg["status"][] = ["PENDING", "ASSIGNED", "ACCEPTED", "DRIVER_ARRIVING", "PASSENGER_ON_BOARD", "REJECTED"];
 const CANCELLABLE: Leg["status"][] = ["PENDING", "ASSIGNED", "ACCEPTED", "DRIVER_ARRIVING", "PASSENGER_ON_BOARD", "REJECTED"];
@@ -88,6 +91,9 @@ export function LegList({ bookingId, legs }: { bookingId: number; legs: Leg[] })
                     {" · "}
                     司机收入：{formatCents(leg.earningAllocationCents)}
                   </Typography.Text>
+                  {leg.driver && PRESENCE_TRACKED_STATUSES.includes(leg.status) && (
+                    <DriverPresenceBadge driverId={leg.driver.id} />
+                  )}
                   {leg.notes && <Typography.Text type="secondary">备注：{leg.notes}</Typography.Text>}
                   {leg.status === "REJECTED" && leg.rejectionReason && (
                     <Typography.Text type="danger">拒绝原因：{leg.rejectionReason}</Typography.Text>

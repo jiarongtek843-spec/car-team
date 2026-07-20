@@ -1,6 +1,7 @@
 import { Layout, Menu, Space, Typography } from "antd";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../modules/auth/AuthContext";
+import { DriverPresenceToggle } from "../modules/gps/components/DriverPresenceToggle";
 
 const { Header, Content } = Layout;
 
@@ -32,7 +33,8 @@ export function DriverLayout() {
           items={NAV_ITEMS}
           style={{ flex: 1 }}
         />
-        <Space>
+        <Space size="large">
+          <DriverPresenceToggle />
           <Typography.Text style={{ color: "#fff" }}>{user?.driver?.name ?? user?.username}</Typography.Text>
           <a style={{ color: "#fff" }} onClick={handleLogout}>
             登出
