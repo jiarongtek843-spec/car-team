@@ -9,7 +9,7 @@ export interface ParsedLeg {
 export interface ParsedBooking {
   girlName?: string;
   notes?: string;
-  carFee?: number;
+  totalAmountCents?: number;
   legs?: ParsedLeg[];
 }
 
@@ -68,7 +68,7 @@ export function parseBookingText(text: string): ParsedBooking {
 
   const carFeeMatch = text.match(/Car\s*fee:\s*([\d.]+)/i);
   if (carFeeMatch) {
-    result.carFee = Math.round(Number(carFeeMatch[1]));
+    result.totalAmountCents = Math.round(Number(carFeeMatch[1]) * 100);
   }
 
   const address = extractAddress(text);

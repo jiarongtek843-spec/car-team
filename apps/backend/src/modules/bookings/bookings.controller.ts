@@ -2,28 +2,35 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { parseIdParam } from "../../common/params.js";
 import * as bookingsService from "./bookings.service.js";
+import { actorFromRequest } from "../../common/audit.js";
 
 const bookingStatusSchema = z.enum(["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"]);
+const commissionTypeSchema = z.enum(["PERCENTAGE", "FIXED_AMOUNT"]);
 
 const legInputSchema = z.object({
   pickupLocation: z.string().min(1).optional(),
   dropoffLocation: z.string().min(1).optional(),
   scheduledAt: z.string().datetime().optional(),
   driverId: z.coerce.number().int().positive().optional(),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  earningAllocationCents: z.coerce.number().int().nonnegative().optional()
 });
 
 const createBookingSchema = z.object({
   girlName: z.string().min(1),
-  carFee: z.coerce.number().int().nonnegative().optional(),
   notes: z.string().optional(),
+  totalAmountCents: z.coerce.number().int().nonnegative().optional(),
+  commissionType: commissionTypeSchema.optional(),
+  commissionValue: z.coerce.number().int().nonnegative().optional(),
   legs: z.array(legInputSchema).optional()
 });
 
 const updateBookingSchema = z.object({
   girlName: z.string().min(1).optional(),
-  carFee: z.coerce.number().int().nonnegative().optional(),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  totalAmountCents: z.coerce.number().int().nonnegative().optional(),
+  commissionType: commissionTypeSchema.optional(),
+  commissionValue: z.coerce.number().int().nonnegative().optional()
 });
 
 const listQuerySchema = z.object({
@@ -54,7 +61,7 @@ export async function create(req: Request, res: Response) {
 export async function update(req: Request, res: Response) {
   const id = parseIdParam(req.params.id);
   const input = updateBookingSchema.parse(req.body);
-  const booking = await bookingsService.updateBooking(id, input);
+  const booking = await bookingsService.updateBooking(id, input, actorFromRequest(req));
   res.json(booking);
 }
 

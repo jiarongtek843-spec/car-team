@@ -6,12 +6,15 @@ import { useBookingQuery, useCancelBookingMutation } from "./hooks";
 import { BookingStatusTag } from "./components/StatusTags";
 import { LegList } from "./components/LegList";
 import { AddLegModal } from "./components/AddLegModal";
+import { EditBookingModal } from "./components/EditBookingModal";
+import { formatCents } from "../../lib/money";
 
 export function BookingDetailPage() {
   const { id } = useParams();
   const bookingId = Number(id);
   const navigate = useNavigate();
   const [addLegOpen, setAddLegOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const { data: booking, isLoading } = useBookingQuery(bookingId);
   const cancelBooking = useCancelBookingMutation(bookingId);
@@ -31,6 +34,16 @@ export function BookingDetailPage() {
   const canCancel = booking.status === "PENDING" || booking.status === "IN_PROGRESS";
   const canAddLeg = booking.status !== "CANCELLED";
 
+  const allocatedCents = booking.legs
+    .filter((leg) => leg.status !== "CANCELLED")
+    .reduce((sum, leg) => sum + (leg.earningAllocationCents ?? 0), 0);
+  const remainingCents = booking.driverPoolAmountCents - allocatedCents;
+
+  const commissionLabel =
+    booking.platformCommissionType === "PERCENTAGE"
+      ? `${booking.platformCommissionValue}%`
+      : formatCents(booking.platformCommissionValue);
+
   return (
     <div style={{ padding: 24 }}>
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate("/")} style={{ paddingLeft: 0 }}>
@@ -47,27 +60,35 @@ export function BookingDetailPage() {
           </Space>
         }
         extra={
-          canCancel && (
-            <Popconfirm
-              title="确定要取消整张 Booking 吗？"
-              description="尚未完成的 Leg 会一并被取消。"
-              onConfirm={async () => {
-                await cancelBooking.mutateAsync();
-                message.success("Booking 已取消");
-              }}
-            >
-              <Button danger loading={cancelBooking.isPending}>
-                取消 Booking
-              </Button>
-            </Popconfirm>
-          )
+          <Space>
+            <Button onClick={() => setEditOpen(true)}>编辑</Button>
+            {canCancel && (
+              <Popconfirm
+                title="确定要取消整张 Booking 吗？"
+                description="尚未完成的 Leg 会一并被取消。"
+                onConfirm={async () => {
+                  await cancelBooking.mutateAsync();
+                  message.success("Booking 已取消");
+                }}
+              >
+                <Button danger loading={cancelBooking.isPending}>
+                  取消 Booking
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
         }
         style={{ marginBottom: 24 }}
       >
         <Descriptions column={2}>
           <Descriptions.Item label="Girl 姓名">{booking.girlName}</Descriptions.Item>
-          <Descriptions.Item label="车费">{booking.carFee ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="建立时间">{new Date(booking.createdAt).toLocaleString()}</Descriptions.Item>
+          <Descriptions.Item label="Booking Total">{formatCents(booking.totalAmountCents)}</Descriptions.Item>
+          <Descriptions.Item label="Platform Commission">{commissionLabel}</Descriptions.Item>
+          <Descriptions.Item label="Platform Amount">{formatCents(booking.platformAmountCents)}</Descriptions.Item>
+          <Descriptions.Item label="Driver Pool">{formatCents(booking.driverPoolAmountCents)}</Descriptions.Item>
+          <Descriptions.Item label="Allocated to Legs">{formatCents(allocatedCents)}</Descriptions.Item>
+          <Descriptions.Item label="Remaining Unallocated">{formatCents(remainingCents)}</Descriptions.Item>
           <Descriptions.Item label="备注" span={2}>
             {booking.notes ?? "-"}
           </Descriptions.Item>
@@ -92,6 +113,7 @@ export function BookingDetailPage() {
       </Card>
 
       <AddLegModal bookingId={booking.id} open={addLegOpen} onClose={() => setAddLegOpen(false)} />
+      <EditBookingModal booking={booking} open={editOpen} onClose={() => setEditOpen(false)} />
     </div>
   );
 }

@@ -6,7 +6,10 @@ const { Header, Content } = Layout;
 
 const NAV_ITEMS = [
   { key: "/", label: <Link to="/">Booking</Link> },
-  { key: "/drivers", label: <Link to="/drivers">Driver</Link> }
+  { key: "/drivers", label: <Link to="/drivers">Driver</Link> },
+  { key: "/wallet", label: <Link to="/wallet">Wallet</Link> },
+  { key: "/settlements/daily", label: <Link to="/settlements/daily">Daily Settlement</Link> },
+  { key: "/settlements/history", label: <Link to="/settlements/history">Settlement History</Link> }
 ];
 
 export function AppLayout() {

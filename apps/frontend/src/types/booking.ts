@@ -9,6 +9,7 @@ export type LegStatus =
   | "REJECTED"
   | "CANCELLED";
 export type DriverStatus = "ACTIVE" | "INACTIVE";
+export type CommissionType = "PERCENTAGE" | "FIXED_AMOUNT";
 
 export interface Driver {
   id: number;
@@ -34,6 +35,7 @@ export interface Leg {
   scheduledAt: string | null;
   notes: string | null;
   status: LegStatus;
+  earningAllocationCents: number | null;
   rejectionReason: string | null;
   assignedAt: string | null;
   acceptedAt: string | null;
@@ -46,8 +48,12 @@ export interface Leg {
 export interface Booking {
   id: number;
   girlName: string;
-  carFee: number | null;
   notes: string | null;
+  totalAmountCents: number;
+  platformCommissionType: CommissionType;
+  platformCommissionValue: number;
+  platformAmountCents: number;
+  driverPoolAmountCents: number;
   status: BookingStatus;
   createdAt: string;
   updatedAt: string;
@@ -71,19 +77,24 @@ export interface CreateLegInput {
   scheduledAt?: string;
   driverId?: number;
   notes?: string;
+  earningAllocationCents?: number;
 }
 
 export interface CreateBookingInput {
   girlName: string;
-  carFee?: number;
   notes?: string;
+  totalAmountCents?: number;
+  commissionType?: CommissionType;
+  commissionValue?: number;
   legs?: CreateLegInput[];
 }
 
 export interface UpdateBookingInput {
   girlName?: string;
-  carFee?: number;
   notes?: string;
+  totalAmountCents?: number;
+  commissionType?: CommissionType;
+  commissionValue?: number;
 }
 
 export interface UpdateLegInput {
@@ -91,4 +102,5 @@ export interface UpdateLegInput {
   dropoffLocation?: string;
   scheduledAt?: string;
   notes?: string;
+  earningAllocationCents?: number;
 }

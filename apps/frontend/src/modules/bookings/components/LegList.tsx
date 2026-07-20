@@ -3,10 +3,13 @@ import { List, Popconfirm, Space, Typography, message } from "antd";
 import type { Leg } from "../../../types/booking";
 import { LegStatusTag } from "./StatusTags";
 import { AssignDriverModal } from "./AssignDriverModal";
+import { EditAllocationModal } from "./EditAllocationModal";
 import { useCancelLegMutation, useDeleteLegMutation } from "../hooks";
+import { formatCents } from "../../../lib/money";
 
 const REASSIGNABLE: Leg["status"][] = ["PENDING", "ASSIGNED", "ACCEPTED", "DRIVER_ARRIVING", "PASSENGER_ON_BOARD", "REJECTED"];
 const CANCELLABLE: Leg["status"][] = ["PENDING", "ASSIGNED", "ACCEPTED", "DRIVER_ARRIVING", "PASSENGER_ON_BOARD", "REJECTED"];
+const ALLOCATION_EDITABLE: Leg["status"][] = ["PENDING", "ASSIGNED", "ACCEPTED", "DRIVER_ARRIVING", "PASSENGER_ON_BOARD", "REJECTED"];
 
 const STAGE_TIMESTAMPS: { key: keyof Leg; label: string }[] = [
   { key: "assignedAt", label: "指派" },
@@ -19,6 +22,7 @@ const STAGE_TIMESTAMPS: { key: keyof Leg; label: string }[] = [
 
 export function LegList({ bookingId, legs }: { bookingId: number; legs: Leg[] }) {
   const [assigningLegId, setAssigningLegId] = useState<number | null>(null);
+  const [allocatingLeg, setAllocatingLeg] = useState<Leg | null>(null);
   const cancelLeg = useCancelLegMutation(bookingId);
   const deleteLeg = useDeleteLegMutation(bookingId);
 
@@ -32,6 +36,11 @@ export function LegList({ bookingId, legs }: { bookingId: number; legs: Leg[] })
               REASSIGNABLE.includes(leg.status) && (
                 <a key="assign" onClick={() => setAssigningLegId(leg.id)}>
                   {leg.driver ? "重新指派" : "指派司机"}
+                </a>
+              ),
+              ALLOCATION_EDITABLE.includes(leg.status) && (
+                <a key="allocation" onClick={() => setAllocatingLeg(leg)}>
+                  设定收入
                 </a>
               ),
               CANCELLABLE.includes(leg.status) && (
@@ -76,6 +85,8 @@ export function LegList({ bookingId, legs }: { bookingId: number; legs: Leg[] })
                     {leg.scheduledAt ? new Date(leg.scheduledAt).toLocaleString() : "未设定时间"}
                     {" · "}
                     司机：{leg.driver ? leg.driver.name : "未指派"}
+                    {" · "}
+                    司机收入：{formatCents(leg.earningAllocationCents)}
                   </Typography.Text>
                   {leg.notes && <Typography.Text type="secondary">备注：{leg.notes}</Typography.Text>}
                   {leg.status === "REJECTED" && leg.rejectionReason && (
@@ -94,6 +105,7 @@ export function LegList({ bookingId, legs }: { bookingId: number; legs: Leg[] })
       />
 
       <AssignDriverModal bookingId={bookingId} legId={assigningLegId} onClose={() => setAssigningLegId(null)} />
+      <EditAllocationModal bookingId={bookingId} leg={allocatingLeg} onClose={() => setAllocatingLeg(null)} />
     </>
   );
 }

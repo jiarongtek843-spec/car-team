@@ -15,17 +15,22 @@ Driver
   id, name, phone?, status(ACTIVE|INACTIVE), createdAt, updatedAt
 
 Booking
-  id, girlName, carFee?, notes?
+  id, girlName, notes?
+  totalAmountCents, platformCommissionType, platformCommissionValue,
+  platformAmountCents, driverPoolAmountCents   -- 见 commission-wallet-settlement.md
   status(PENDING|IN_PROGRESS|COMPLETED|CANCELLED)  -- 自动推导，见下
   createdAt, updatedAt
 
 Leg
   id, bookingId, sequence
   pickupLocation?, dropoffLocation?, scheduledAt?, notes?
+  earningAllocationCents?   -- 见 commission-wallet-settlement.md
   driverId?  -- 可为空 = 未指派
   status(PENDING|IN_PROGRESS|COMPLETED|CANCELLED)
   createdAt, updatedAt
 ```
+
+> Module 3（Commission/Wallet/Settlement）上线后，原本的 `carFee`（车费，单位是 ringgit）改成 `totalAmountCents`（Booking 总价，单位是 cents），概念上是同一件事只是单位跟栏位名称改了，细节见 [commission-wallet-settlement.md](./commission-wallet-settlement.md)。
 
 ## Booking Status Flow
 
@@ -53,7 +58,7 @@ Booking 的 status 不是手动设定的字段，是每次 Leg 状态变动时�
 - `GET /api/bookings` — 列表，支持 `status`、`search`（比对 girlName）、`page`、`pageSize`
 - `GET /api/bookings/:id` — 详情，含 legs（每个 leg 附带指派的 driver 基本信息）
 - `POST /api/bookings` — 建立，可同时带 `legs: []` 一起建
-- `PATCH /api/bookings/:id` — 改 `girlName` / `carFee` / `notes`
+- `PATCH /api/bookings/:id` — 改 `girlName` / `notes` / 总价与抽成（已有 Completed Leg 或 Wallet Transaction 时不可改总价与抽成，见 [commission-wallet-settlement.md](./commission-wallet-settlement.md)）
 - `POST /api/bookings/:id/cancel` — 取消整张 Booking（级联取消未完成的 Leg）
 - `POST /api/bookings/:id/legs` — 新增 Leg（sequence 自动 = 目前最大值 + 1）；Booking 为 `CANCELLED` 时不可新增
 - `PATCH /api/bookings/:id/legs/:legId` — 改 Leg 资料，仅限 leg 尚未 `COMPLETED`/`CANCELLED`
@@ -67,8 +72,8 @@ Booking 的 status 不是手动设定的字段，是每次 Leg 状态变动时�
 
 ## Frontend
 
-- `/` Booking 列表页：状态筛选、关键字搜索（Girl 姓名）、每笔显示 Leg 进度（如 2/3 已完成）、车费
-- `/bookings/:id` Booking 详情页：Girl 姓名、车费、状态、取消按钮、Leg 列表（依 sequence 排序，各自的指派/开始/完成/取消操作）、新增 Leg
+- `/` Booking 列表页：状态筛选、关键字搜索（Girl 姓名）、每笔显示 Leg 进度（如 2/3 已完成）、Booking Total
+- `/bookings/:id` Booking 详情页：Girl 姓名、状态、总价与抽成拆解（Platform Amount / Driver Pool / Allocated / Remaining）、取消按钮、Leg 列表（依 sequence 排序，各自的指派/取消操作、司机收入设定）、新增 Leg
 - 指派司机走 Modal，下拉选现有 Driver，附「快速新增司机」
 - 引入 `react-router-dom` 做多页导航、`@tanstack/react-query` 做资料请求与 mutation 后自动 refetch（后续每个 Module 都会重用这套基础设施）
 
@@ -96,7 +101,7 @@ Car fee: 130
 - `Time: N hrs` → 回程 Leg 的 `scheduledAt` = 去程时间 + N 小时
 - `Address:` 与两条 `====` 分隔线之间的文字 → 去程填 `dropoffLocation`，回程填 `pickupLocation`（同一个地址，方向相反）
 - `Collect:` → 拼进备注
-- `Car fee:` → 车费
+- `Car fee:` → Booking Total（`totalAmountCents`）
 
 识别结果只是预填表单，仍可手动修改后再送出；抓不到的栏位就留空，不会因为格式跟范例不完全一致而报错。目前只用在新建 Booking，还没接到「新增 Leg」的流程。
 
@@ -113,9 +118,11 @@ Car fee: 130
 
 Module 2 上线后新增：Admin/Driver 登入权限、Driver 在自己的工作页处理 Leg（详见 [driver-account.md](./driver-account.md)）。
 
+Module 3 上线后新增：Booking 总价与抽成计算、Leg 收入分配、Driver Wallet、Daily Settlement（详见 [commission-wallet-settlement.md](./commission-wallet-settlement.md)）。
+
 ## 已知限制
 
 - 智能识别贴文只接在「新建 Booking」，还没接到「新增 Leg」（例如已有 Booking 想再贴一段追加行程）
-- 车费（`carFee`）是单一数字栏位，Collect 金额只是备注文字，都还没有统计/报表功能
+- Collect 金额只是备注文字，没有结构化栏位/统计功能
 - 客户身份完全不记录（只用地址定位），如果以后需要追踪客户历史会是另一个 Module
-- 其余（Driver 完整资料、登入权限、自动化测试）见 [driver-account.md](./driver-account.md) 的已知限制
+- 其余（Driver 完整资料、登入权限、自动化测试、Commission/Wallet/Settlement）见 [driver-account.md](./driver-account.md) 和 [commission-wallet-settlement.md](./commission-wallet-settlement.md) 的已知限制

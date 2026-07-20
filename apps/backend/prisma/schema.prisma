@@ -41,6 +41,29 @@ enum LegStatus {
   CANCELLED
 }
 
+enum CommissionType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum WalletTransactionType {
+  LEG_EARNING
+  MANUAL_ADJUSTMENT
+  SETTLEMENT_ADJUSTMENT
+}
+
+enum WalletTransactionStatus {
+  PENDING
+  SETTLED
+  VOIDED
+}
+
+enum SettlementStatus {
+  DRAFT
+  COMPLETED
+  VOIDED
+}
+
 // 登入帐号，Admin 和 Driver 共用同一套。Driver 的业务资料在 Driver model，
 // 两者用 userId 关联；Admin 没有对应的 Driver row。
 model User {
@@ -53,6 +76,10 @@ model User {
   updatedAt    DateTime   @updatedAt @map("updated_at")
   driver       Driver?
   auditLogs    AuditLog[]
+
+  walletTransactionsCreated WalletTransaction[] @relation("WalletTransactionCreatedBy")
+  settlementsCreated        Settlement[]        @relation("SettlementCreatedBy")
+  settlementsVoided         Settlement[]        @relation("SettlementVoidedBy")
 
   @@map("users")
 }
@@ -72,18 +99,44 @@ model Driver {
   updatedAt          DateTime     @updatedAt @map("updated_at")
   legs               Leg[]
 
+  walletTransactions WalletTransaction[]
+  settlements        Settlement[]
+
   @@map("drivers")
 }
 
+// 单例设定表，只会有一笔（id=1）。新 Booking 建立时读这里当默认抽成，
+// 不要把数值写死在程式码里。
+model CompanySettings {
+  id                             Int            @id @default(autoincrement())
+  defaultCommissionType          CommissionType @default(PERCENTAGE) @map("default_commission_type")
+  // PERCENTAGE 时是整数百分比（15 = 15%）；FIXED_AMOUNT 时是 cents。
+  defaultCommissionValue         Int            @default(15) @map("default_commission_value")
+  updatedAt                      DateTime       @updatedAt @map("updated_at")
+
+  @@map("company_settings")
+}
+
 model Booking {
-  id        Int           @id @default(autoincrement())
-  girlName  String        @map("girl_name")
-  carFee    Int?          @map("car_fee")
-  notes     String?
+  id       Int    @id @default(autoincrement())
+  girlName String @map("girl_name")
+  notes    String?
+
+  // Booking 总价与抽成。建立时从 CompanySettings 复制默认值，之后可单独覆盖这张 Booking，
+  // 不影响全公司设定。platformAmountCents / driverPoolAmountCents 一律由 Backend 算出，
+  // 不接受前端直接传入。
+  totalAmountCents        Int            @default(0) @map("total_amount_cents")
+  platformCommissionType  CommissionType @default(PERCENTAGE) @map("platform_commission_type")
+  platformCommissionValue Int            @default(15) @map("platform_commission_value")
+  platformAmountCents     Int            @default(0) @map("platform_amount_cents")
+  driverPoolAmountCents   Int            @default(0) @map("driver_pool_amount_cents")
+
   status    BookingStatus @default(PENDING)
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @updatedAt @map("updated_at")
   legs      Leg[]
+
+  walletTransactions WalletTransaction[]
 
   @@map("bookings")
 }
@@ -101,31 +154,119 @@ model Leg {
   notes           String?
   status          LegStatus @default(PENDING)
 
-  rejectionReason   String?   @map("rejection_reason")
-  assignedAt        DateTime? @map("assigned_at")
-  acceptedAt        DateTime? @map("accepted_at")
-  driverArrivingAt  DateTime? @map("driver_arriving_at")
+  // 这个 Leg 完成后司机应得多少钱。Admin 设定，Completed 后不可再改。
+  earningAllocationCents Int? @map("earning_allocation_cents")
+
+  rejectionReason    String?   @map("rejection_reason")
+  assignedAt         DateTime? @map("assigned_at")
+  acceptedAt         DateTime? @map("accepted_at")
+  driverArrivingAt   DateTime? @map("driver_arriving_at")
   passengerOnBoardAt DateTime? @map("passenger_on_board_at")
-  completedAt       DateTime? @map("completed_at")
+  completedAt        DateTime? @map("completed_at")
   rejectedAt         DateTime? @map("rejected_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  walletTransactions WalletTransaction[]
+
   @@unique([bookingId, sequence])
   @@map("legs")
 }
 
-// 所有重要操作（帐号、司机资料、Leg 状态变更）都写一笔，方便追查是谁在什么时候做了什么。
+// 唯一的记账来源，只能新增、不能修改历史金额。要更正就新增一笔反向 Adjustment。
+model WalletTransaction {
+  id     Int    @id @default(autoincrement())
+  driverId Int  @map("driver_id")
+  driver   Driver @relation(fields: [driverId], references: [id])
+
+  bookingId Int?     @map("booking_id")
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+  legId     Int?     @map("leg_id")
+  leg       Leg?     @relation(fields: [legId], references: [id])
+
+  transactionType WalletTransactionType   @map("transaction_type")
+  amountCents     Int                     @map("amount_cents")
+  description     String?
+  status          WalletTransactionStatus @default(PENDING)
+  effectiveDate   DateTime                @map("effective_date") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy Int?     @map("created_by")
+  createdByUser User? @relation("WalletTransactionCreatedBy", fields: [createdBy], references: [id])
+
+  settledAt    DateTime?   @map("settled_at")
+  settlementId Int?        @map("settlement_id")
+  settlement   Settlement? @relation("SettlementTransactions", fields: [settlementId], references: [id])
+
+  // 只有 SETTLEMENT_ADJUSTMENT 会用到：这笔是在更正/反冲哪一个 Settlement。
+  // 跟 settlementId 不是同一件事——settlementId 是「这笔本身被哪个 Settlement 结算掉」。
+  relatedSettlementId Int?        @map("related_settlement_id")
+  relatedSettlement   Settlement? @relation("SettlementAdjustmentReversal", fields: [relatedSettlementId], references: [id])
+
+  settlementItem SettlementItem?
+
+  // 一个 Leg 一辈子只能有一笔有效的 LEG_EARNING，DB 层杜绝重复记账。
+  @@unique([legId, transactionType])
+  @@map("wallet_transactions")
+}
+
+// 不可变的日结纪录。Completed 后金额不可再改，要更正另开 Adjustment 或走 Void 流程。
+model Settlement {
+  id             Int              @id @default(autoincrement())
+  reference      String           @unique
+  driverId       Int              @map("driver_id")
+  driver         Driver           @relation(fields: [driverId], references: [id])
+  periodStart    DateTime         @map("period_start") @db.Date
+  periodEnd      DateTime         @map("period_end") @db.Date
+  status         SettlementStatus @default(DRAFT)
+  netAmountCents Int              @map("net_amount_cents")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  createdBy     Int?     @map("created_by")
+  createdByUser User?    @relation("SettlementCreatedBy", fields: [createdBy], references: [id])
+
+  voidedAt   DateTime? @map("voided_at")
+  voidedBy   Int?      @map("voided_by")
+  voidedByUser User?   @relation("SettlementVoidedBy", fields: [voidedBy], references: [id])
+  voidReason String?   @map("void_reason")
+
+  items                SettlementItem[]
+  transactions         WalletTransaction[] @relation("SettlementTransactions")
+  reversalTransactions WalletTransaction[] @relation("SettlementAdjustmentReversal")
+
+  @@map("settlements")
+}
+
+// 记录一笔 Settlement 包含哪些 Wallet Transaction。walletTransactionId 加 @unique，
+// 保证同一笔 Transaction 不会同时出现在两个 Settlement 里。
+model SettlementItem {
+  id                  Int      @id @default(autoincrement())
+  settlementId        Int      @map("settlement_id")
+  settlement          Settlement @relation(fields: [settlementId], references: [id])
+  walletTransactionId Int      @unique @map("wallet_transaction_id")
+  walletTransaction   WalletTransaction @relation(fields: [walletTransactionId], references: [id])
+  amountCents         Int      @map("amount_cents")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@map("settlement_items")
+}
+
+// 所有重要操作（帐号、司机资料、Leg 状态变更、Commission/Allocation、Wallet、Settlement）都写一笔，
+// 方便追查是谁在什么时候做了什么。beforeData/afterData 用在真的有「改动前后」的操作；
+// 单纯的建立事件（例如 LEG_EARNING_CREATED）只会有 afterData。metadata 放其他辅助资讯（原因、关联 id 等）。
 model AuditLog {
-  id          Int      @id @default(autoincrement())
-  actorUserId Int?     @map("actor_user_id")
-  actorUser   User?    @relation(fields: [actorUserId], references: [id])
+  id          Int       @id @default(autoincrement())
+  actorUserId Int?      @map("actor_user_id")
+  actorUser   User?     @relation(fields: [actorUserId], references: [id])
+  actorRole   UserRole? @map("actor_role")
   action      String
-  entityType  String   @map("entity_type")
-  entityId    Int      @map("entity_id")
+  entityType  String    @map("entity_type")
+  entityId    Int       @map("entity_id")
+  beforeData  Json?     @map("before_data")
+  afterData   Json?     @map("after_data")
   metadata    Json?
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   @@map("audit_logs")
 }

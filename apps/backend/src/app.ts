@@ -7,6 +7,11 @@ import { bookingsRouter } from "./modules/bookings/bookings.routes.js";
 import { driversRouter } from "./modules/drivers/drivers.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { driverJobsRouter } from "./modules/driverJobs/driverJobs.routes.js";
+import { companySettingsRouter } from "./modules/companySettings/companySettings.routes.js";
+import { walletRouter } from "./modules/wallet/wallet.routes.js";
+import { driverWalletRouter } from "./modules/wallet/driverWallet.routes.js";
+import { settlementRouter } from "./modules/settlement/settlement.routes.js";
+import { driverSettlementRouter } from "./modules/settlement/driverSettlement.routes.js";
 import { errorHandler } from "./common/errorHandler.js";
 
 export const app = express();
@@ -21,5 +26,10 @@ app.use("/api/auth", authRouter);
 app.use("/api/bookings", bookingsRouter);
 app.use("/api/drivers", driversRouter);
 app.use("/api/driver/legs", driverJobsRouter);
+app.use("/api/admin/company-settings", companySettingsRouter);
+app.use("/api/admin/wallet", walletRouter);
+app.use("/api/driver/wallet", driverWalletRouter);
+app.use("/api/admin/settlements", settlementRouter);
+app.use("/api/driver/settlements", driverSettlementRouter);
 
 app.use(errorHandler);

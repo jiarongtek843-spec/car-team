@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import * as driversService from "./drivers.service.js";
-import { writeAuditLog } from "../../common/audit.js";
+import { actorFromRequest, writeAuditLog } from "../../common/audit.js";
 import { parseIdParam } from "../../common/params.js";
 
 const driverStatusSchema = z.enum(["ACTIVE", "INACTIVE"]);
@@ -41,7 +41,7 @@ export async function create(req: Request, res: Response) {
   const driver = await driversService.createDriver(input);
 
   await writeAuditLog({
-    actorUserId: req.authUser?.id ?? null,
+    actor: actorFromRequest(req),
     action: "DRIVER_CREATE",
     entityType: "Driver",
     entityId: driver.id
@@ -56,7 +56,7 @@ export async function update(req: Request, res: Response) {
   const driver = await driversService.updateDriver(id, input);
 
   await writeAuditLog({
-    actorUserId: req.authUser?.id ?? null,
+    actor: actorFromRequest(req),
     action: "DRIVER_UPDATE",
     entityType: "Driver",
     entityId: driver.id
@@ -71,7 +71,7 @@ export async function setStatus(req: Request, res: Response) {
   const driver = await driversService.setDriverStatus(id, status);
 
   await writeAuditLog({
-    actorUserId: req.authUser?.id ?? null,
+    actor: actorFromRequest(req),
     action: "DRIVER_STATUS_CHANGE",
     entityType: "Driver",
     entityId: driver.id,
@@ -87,7 +87,7 @@ export async function resetPassword(req: Request, res: Response) {
   const driver = await driversService.resetDriverPassword(id, password);
 
   await writeAuditLog({
-    actorUserId: req.authUser?.id ?? null,
+    actor: actorFromRequest(req),
     action: "DRIVER_PASSWORD_RESET",
     entityType: "Driver",
     entityId: driver.id

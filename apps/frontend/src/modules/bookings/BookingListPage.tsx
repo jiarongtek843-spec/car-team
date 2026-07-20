@@ -6,6 +6,7 @@ import { useBookingsQuery } from "./hooks";
 import { BookingStatusTag } from "./components/StatusTags";
 import { CreateBookingModal } from "./components/CreateBookingModal";
 import type { BookingListItem, BookingStatus } from "../../types/booking";
+import { formatCents } from "../../lib/money";
 
 const STATUS_OPTIONS: { label: string; value: BookingStatus }[] = [
   { label: "待处理", value: "PENDING" },
@@ -39,7 +40,7 @@ export function BookingListPage() {
       render: (value: BookingStatus) => <BookingStatusTag status={value} />
     },
     { title: "行程进度", render: (_, record) => legProgress(record) },
-    { title: "车费", dataIndex: "carFee", render: (value: number | null) => value ?? "-" },
+    { title: "Booking Total", dataIndex: "totalAmountCents", render: (value: number) => formatCents(value) },
     {
       title: "建立时间",
       dataIndex: "createdAt",

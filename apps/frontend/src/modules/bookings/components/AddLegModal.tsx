@@ -1,12 +1,14 @@
-import { DatePicker, Form, Input, message, Modal } from "antd";
+import { DatePicker, Form, Input, InputNumber, message, Modal } from "antd";
 import type { Dayjs } from "dayjs";
 import { useAddLegMutation } from "../hooks";
+import { ringgitToCents } from "../../../lib/money";
 
 interface FormValues {
   pickupLocation?: string;
   dropoffLocation?: string;
   scheduledAt?: Dayjs;
   notes?: string;
+  earningAllocation?: number;
 }
 
 export function AddLegModal({ bookingId, open, onClose }: { bookingId: number; open: boolean; onClose: () => void }) {
@@ -24,7 +26,8 @@ export function AddLegModal({ bookingId, open, onClose }: { bookingId: number; o
       pickupLocation: values.pickupLocation || undefined,
       dropoffLocation: values.dropoffLocation || undefined,
       scheduledAt: values.scheduledAt?.toISOString(),
-      notes: values.notes || undefined
+      notes: values.notes || undefined,
+      earningAllocationCents: values.earningAllocation !== undefined ? ringgitToCents(values.earningAllocation) : undefined
     });
     message.success("Leg 新增成功");
     handleClose();
@@ -49,6 +52,9 @@ export function AddLegModal({ bookingId, open, onClose }: { bookingId: number; o
         </Form.Item>
         <Form.Item name="scheduledAt" label="预定时间">
           <DatePicker showTime style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="earningAllocation" label="司机收入 (RM)">
+          <InputNumber style={{ width: "100%" }} min={0} step={0.01} />
         </Form.Item>
         <Form.Item name="notes" label="备注">
           <Input.TextArea rows={2} />

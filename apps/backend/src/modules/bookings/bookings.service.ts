@@ -1,7 +1,11 @@
-import type { BookingStatus, Prisma } from "@prisma/client";
+import type { BookingStatus, CommissionType, Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
-import { NotFoundError } from "../../common/errors.js";
+import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { deriveBookingStatus } from "./bookings.status.js";
+import { calculateCommissionSplit } from "./commission.js";
+import { getAllocatedSumCents, hasEarningHistory } from "./allocation.js";
+import { getCompanySettings } from "../companySettings/companySettings.service.js";
+import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 
 export const bookingDetailInclude = {
   legs: {
@@ -56,30 +60,70 @@ interface CreateLegInput {
   scheduledAt?: string;
   driverId?: number;
   notes?: string;
+  earningAllocationCents?: number;
 }
 
 interface CreateBookingInput {
   girlName: string;
-  carFee?: number;
   notes?: string;
+  totalAmountCents?: number;
+  commissionType?: CommissionType;
+  commissionValue?: number;
   legs?: CreateLegInput[];
 }
 
+function sumAllocations(legs: CreateLegInput[]) {
+  return legs.reduce((sum, leg) => sum + (leg.earningAllocationCents ?? 0), 0);
+}
+
 export async function createBooking(input: CreateBookingInput) {
+  const totalAmountCents = input.totalAmountCents ?? 0;
+
+  let commissionType = input.commissionType;
+  let commissionValue = input.commissionValue;
+  if (!commissionType || commissionValue === undefined) {
+    const settings = await getCompanySettings();
+    commissionType ??= settings.defaultCommissionType;
+    commissionValue ??= settings.defaultCommissionValue;
+  }
+
+  const { platformAmountCents, driverPoolAmountCents } = calculateCommissionSplit(
+    totalAmountCents,
+    commissionType,
+    commissionValue
+  );
+
+  const legs = input.legs ?? [];
+  for (const leg of legs) {
+    if (leg.earningAllocationCents !== undefined && leg.earningAllocationCents < 0) {
+      throw new ValidationError("earningAllocationCents cannot be negative");
+    }
+  }
+  if (sumAllocations(legs) > driverPoolAmountCents) {
+    throw new ValidationError(
+      `Total leg allocation exceeds driver pool (RM${(driverPoolAmountCents / 100).toFixed(2)})`
+    );
+  }
+
   const booking = await prisma.booking.create({
     data: {
       girlName: input.girlName,
-      carFee: input.carFee,
       notes: input.notes,
-      legs: input.legs
+      totalAmountCents,
+      platformCommissionType: commissionType,
+      platformCommissionValue: commissionValue,
+      platformAmountCents,
+      driverPoolAmountCents,
+      legs: legs.length
         ? {
-            create: input.legs.map((leg, index) => ({
+            create: legs.map((leg, index) => ({
               sequence: index + 1,
               pickupLocation: leg.pickupLocation,
               dropoffLocation: leg.dropoffLocation,
               scheduledAt: leg.scheduledAt ? new Date(leg.scheduledAt) : undefined,
               driverId: leg.driverId,
-              notes: leg.notes
+              notes: leg.notes,
+              earningAllocationCents: leg.earningAllocationCents
             }))
           }
         : undefined
@@ -96,18 +140,94 @@ export async function createBooking(input: CreateBookingInput) {
 
 interface UpdateBookingInput {
   girlName?: string;
-  carFee?: number;
   notes?: string;
+  totalAmountCents?: number;
+  commissionType?: CommissionType;
+  commissionValue?: number;
 }
 
-export async function updateBooking(id: number, input: UpdateBookingInput) {
-  await getBookingById(id);
+const COMMISSION_FIELDS = ["totalAmountCents", "commissionType", "commissionValue"] as const;
 
-  return prisma.booking.update({
+export async function updateBooking(id: number, input: UpdateBookingInput, actor: AuditActor | null) {
+  const booking = await getBookingById(id);
+
+  const touchesCommission = COMMISSION_FIELDS.some((field) => input[field] !== undefined);
+
+  const data: Prisma.BookingUpdateInput = {
+    girlName: input.girlName,
+    notes: input.notes
+  };
+
+  let auditSnapshot: { before: unknown; after: unknown } | undefined;
+
+  if (touchesCommission) {
+    if (await hasEarningHistory(id)) {
+      throw new ConflictError(
+        "This booking already has completed legs or wallet transactions; total amount and commission can no longer be changed"
+      );
+    }
+
+    const totalAmountCents = input.totalAmountCents ?? booking.totalAmountCents;
+    const commissionType = input.commissionType ?? booking.platformCommissionType;
+    const commissionValue = input.commissionValue ?? booking.platformCommissionValue;
+
+    const { platformAmountCents, driverPoolAmountCents } = calculateCommissionSplit(
+      totalAmountCents,
+      commissionType,
+      commissionValue
+    );
+
+    const allocatedSum = await getAllocatedSumCents(id);
+    if (allocatedSum > driverPoolAmountCents) {
+      throw new ValidationError(
+        `Existing leg allocations (RM${(allocatedSum / 100).toFixed(2)}) exceed the new driver pool (RM${(
+          driverPoolAmountCents / 100
+        ).toFixed(2)})`
+      );
+    }
+
+    data.totalAmountCents = totalAmountCents;
+    data.platformCommissionType = commissionType;
+    data.platformCommissionValue = commissionValue;
+    data.platformAmountCents = platformAmountCents;
+    data.driverPoolAmountCents = driverPoolAmountCents;
+
+    auditSnapshot = {
+      before: {
+        totalAmountCents: booking.totalAmountCents,
+        platformCommissionType: booking.platformCommissionType,
+        platformCommissionValue: booking.platformCommissionValue,
+        platformAmountCents: booking.platformAmountCents,
+        driverPoolAmountCents: booking.driverPoolAmountCents
+      },
+      after: {
+        totalAmountCents,
+        platformCommissionType: commissionType,
+        platformCommissionValue: commissionValue,
+        platformAmountCents,
+        driverPoolAmountCents
+      }
+    };
+  }
+
+  const updated = await prisma.booking.update({
     where: { id },
-    data: input,
+    data,
     include: bookingDetailInclude
   });
+
+  if (auditSnapshot) {
+    await writeAuditLog({
+      actor,
+      action: "BOOKING_COMMISSION_UPDATE",
+      entityType: "Booking",
+      entityId: id,
+      beforeData: auditSnapshot.before,
+      afterData: auditSnapshot.after
+    });
+  }
+
+  return updated;
 }
 
 export async function cancelBooking(id: number) {

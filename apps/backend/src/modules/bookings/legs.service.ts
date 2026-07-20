@@ -1,7 +1,9 @@
 import { prisma } from "../../config/prisma.js";
-import { ConflictError, NotFoundError } from "../../common/errors.js";
+import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { recalculateBookingStatus } from "./bookings.service.js";
 import { applyLegTransition } from "./legTransition.js";
+import { getAllocatedSumCents } from "./allocation.js";
+import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 
 const REASSIGNABLE_STATUSES = [
   "PENDING",
@@ -29,12 +31,31 @@ async function getOwnedLeg(bookingId: number, legId: number) {
   return leg;
 }
 
+async function assertAllocationFits(bookingId: number, newAllocationCents: number, excludeLegId?: number) {
+  if (newAllocationCents < 0) {
+    throw new ValidationError("earningAllocationCents cannot be negative");
+  }
+
+  const booking = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } });
+  const otherLegsSum = await getAllocatedSumCents(bookingId, excludeLegId);
+  const totalAfter = otherLegsSum + newAllocationCents;
+
+  if (totalAfter > booking.driverPoolAmountCents) {
+    throw new ValidationError(
+      `Total leg allocation (RM${(totalAfter / 100).toFixed(2)}) would exceed the driver pool (RM${(
+        booking.driverPoolAmountCents / 100
+      ).toFixed(2)})`
+    );
+  }
+}
+
 interface AddLegInput {
   pickupLocation?: string;
   dropoffLocation?: string;
   scheduledAt?: string;
   driverId?: number;
   notes?: string;
+  earningAllocationCents?: number;
 }
 
 export async function addLeg(bookingId: number, input: AddLegInput) {
@@ -44,6 +65,10 @@ export async function addLeg(bookingId: number, input: AddLegInput) {
   }
   if (booking.status === "CANCELLED") {
     throw new ConflictError("Cannot add a leg to a cancelled booking");
+  }
+
+  if (input.earningAllocationCents !== undefined) {
+    await assertAllocationFits(bookingId, input.earningAllocationCents);
   }
 
   const lastLeg = await prisma.leg.findFirst({
@@ -59,7 +84,8 @@ export async function addLeg(bookingId: number, input: AddLegInput) {
       dropoffLocation: input.dropoffLocation,
       scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : undefined,
       driverId: input.driverId,
-      notes: input.notes
+      notes: input.notes,
+      earningAllocationCents: input.earningAllocationCents
     }
   });
 
@@ -71,12 +97,23 @@ interface UpdateLegInput {
   dropoffLocation?: string;
   scheduledAt?: string;
   notes?: string;
+  earningAllocationCents?: number;
 }
 
-export async function updateLeg(bookingId: number, legId: number, input: UpdateLegInput) {
+export async function updateLeg(bookingId: number, legId: number, input: UpdateLegInput, actor: AuditActor | null) {
   const leg = await getOwnedLeg(bookingId, legId);
   if (leg.status === "COMPLETED" || leg.status === "CANCELLED") {
     throw new ConflictError(`Leg is already ${leg.status} and cannot be edited`);
+  }
+
+  if (input.earningAllocationCents !== undefined) {
+    // 防呆：正常流程下已经产生 Wallet Transaction 的 Leg 一定已经是 COMPLETED（上面已经挡掉），
+    // 这里多一层直接检查 Transaction 是否存在，避免任何未来的状态机改动意外打开这个漏洞。
+    const hasTransaction = await prisma.walletTransaction.findFirst({ where: { legId } });
+    if (hasTransaction) {
+      throw new ConflictError("This leg already has a wallet transaction; allocation can no longer be changed");
+    }
+    await assertAllocationFits(bookingId, input.earningAllocationCents, legId);
   }
 
   await prisma.leg.update({
@@ -85,9 +122,21 @@ export async function updateLeg(bookingId: number, legId: number, input: UpdateL
       pickupLocation: input.pickupLocation,
       dropoffLocation: input.dropoffLocation,
       scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : undefined,
-      notes: input.notes
+      notes: input.notes,
+      earningAllocationCents: input.earningAllocationCents
     }
   });
+
+  if (input.earningAllocationCents !== undefined) {
+    await writeAuditLog({
+      actor,
+      action: "LEG_ALLOCATION_UPDATE",
+      entityType: "Leg",
+      entityId: legId,
+      beforeData: { earningAllocationCents: leg.earningAllocationCents },
+      afterData: { earningAllocationCents: input.earningAllocationCents }
+    });
+  }
 
   return recalculateBookingStatus(bookingId);
 }

@@ -1,24 +1,46 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, DatePicker, Divider, Form, Input, InputNumber, message, Modal, Space, Typography } from "antd";
+import {
+  Button,
+  Collapse,
+  DatePicker,
+  Divider,
+  Form,
+  Input,
+  InputNumber,
+  message,
+  Modal,
+  Select,
+  Space,
+  Typography
+} from "antd";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import { useCreateBookingMutation } from "../hooks";
 import { parseBookingText } from "../parseBookingText";
-import type { CreateBookingInput } from "../../../types/booking";
+import { ringgitToCents } from "../../../lib/money";
+import type { CommissionType, CreateBookingInput } from "../../../types/booking";
 import type { Dayjs } from "dayjs";
 
 interface FormLeg {
   pickupLocation?: string;
   dropoffLocation?: string;
   scheduledAt?: Dayjs;
+  earningAllocation?: number;
 }
 
 interface FormValues {
   girlName: string;
-  carFee?: number;
+  totalAmount?: number;
+  commissionType?: CommissionType;
+  commissionValue?: number;
   notes?: string;
   legs?: FormLeg[];
 }
+
+const COMMISSION_TYPE_OPTIONS = [
+  { label: "Percentage (%)", value: "PERCENTAGE" },
+  { label: "Fixed Amount (RM)", value: "FIXED_AMOUNT" }
+];
 
 export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [form] = Form.useForm<FormValues>();
@@ -46,7 +68,7 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
 
     form.setFieldsValue({
       girlName: parsed.girlName,
-      carFee: parsed.carFee,
+      totalAmount: parsed.totalAmountCents !== undefined ? parsed.totalAmountCents / 100 : undefined,
       notes: parsed.notes,
       legs: parsed.legs?.map((leg) => ({
         pickupLocation: leg.pickupLocation,
@@ -61,12 +83,20 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
     const values = await form.validateFields();
     const input: CreateBookingInput = {
       girlName: values.girlName,
-      carFee: values.carFee,
       notes: values.notes || undefined,
+      totalAmountCents: values.totalAmount !== undefined ? ringgitToCents(values.totalAmount) : undefined,
+      commissionType: values.commissionType,
+      commissionValue:
+        values.commissionValue !== undefined
+          ? values.commissionType === "FIXED_AMOUNT"
+            ? ringgitToCents(values.commissionValue)
+            : values.commissionValue
+          : undefined,
       legs: values.legs?.map((leg) => ({
         pickupLocation: leg.pickupLocation || undefined,
         dropoffLocation: leg.dropoffLocation || undefined,
-        scheduledAt: leg.scheduledAt?.toISOString()
+        scheduledAt: leg.scheduledAt?.toISOString(),
+        earningAllocationCents: leg.earningAllocation !== undefined ? ringgitToCents(leg.earningAllocation) : undefined
       }))
     };
 
@@ -85,7 +115,7 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
       confirmLoading={createBooking.isPending}
       okText="建立"
       cancelText="取消"
-      width={640}
+      width={680}
     >
       <Typography.Text strong>智能识别</Typography.Text>
       <Input.TextArea
@@ -103,12 +133,32 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
         <Form.Item name="girlName" label="Girl 姓名" rules={[{ required: true, message: "请输入 Girl 姓名" }]}>
           <Input />
         </Form.Item>
-        <Form.Item name="carFee" label="车费">
-          <InputNumber style={{ width: "100%" }} min={0} />
+        <Form.Item name="totalAmount" label="Booking Total (RM)">
+          <InputNumber style={{ width: "100%" }} min={0} step={0.01} />
         </Form.Item>
         <Form.Item name="notes" label="备注">
           <Input.TextArea rows={2} />
         </Form.Item>
+
+        <Collapse
+          ghost
+          items={[
+            {
+              key: "commission",
+              label: "抽成设定（不填就用公司默认值）",
+              children: (
+                <Space>
+                  <Form.Item name="commissionType" label="Commission Type" style={{ marginBottom: 0 }}>
+                    <Select style={{ width: 180 }} allowClear options={COMMISSION_TYPE_OPTIONS} />
+                  </Form.Item>
+                  <Form.Item name="commissionValue" label="Commission Value" style={{ marginBottom: 0 }}>
+                    <InputNumber min={0} step={0.01} />
+                  </Form.Item>
+                </Space>
+              )
+            }
+          ]}
+        />
 
         <Form.List name="legs">
           {(fields, { add, remove }) => (
@@ -117,13 +167,16 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
               {fields.map(({ key, name, ...rest }) => (
                 <Space key={key} align="baseline" style={{ display: "flex", marginBottom: 8 }} wrap>
                   <Form.Item {...rest} name={[name, "pickupLocation"]}>
-                    <Input placeholder="起点（可留空）" style={{ width: 160 }} />
+                    <Input placeholder="起点（可留空）" style={{ width: 140 }} />
                   </Form.Item>
                   <Form.Item {...rest} name={[name, "dropoffLocation"]}>
-                    <Input placeholder="终点（可留空）" style={{ width: 160 }} />
+                    <Input placeholder="终点（可留空）" style={{ width: 140 }} />
                   </Form.Item>
                   <Form.Item {...rest} name={[name, "scheduledAt"]}>
                     <DatePicker showTime placeholder="预定时间" />
+                  </Form.Item>
+                  <Form.Item {...rest} name={[name, "earningAllocation"]}>
+                    <InputNumber placeholder="司机收入 (RM)" min={0} step={0.01} style={{ width: 140 }} />
                   </Form.Item>
                   <MinusCircleOutlined onClick={() => remove(name)} />
                 </Space>

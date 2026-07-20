@@ -2,21 +2,23 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { parseIdParam } from "../../common/params.js";
 import * as legsService from "./legs.service.js";
-import { writeAuditLog } from "../../common/audit.js";
+import { actorFromRequest, writeAuditLog } from "../../common/audit.js";
 
 const addLegSchema = z.object({
   pickupLocation: z.string().min(1).optional(),
   dropoffLocation: z.string().min(1).optional(),
   scheduledAt: z.string().datetime().optional(),
   driverId: z.coerce.number().int().positive().optional(),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  earningAllocationCents: z.coerce.number().int().nonnegative().optional()
 });
 
 const updateLegSchema = z.object({
   pickupLocation: z.string().min(1).optional(),
   dropoffLocation: z.string().min(1).optional(),
   scheduledAt: z.string().datetime().optional(),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  earningAllocationCents: z.coerce.number().int().nonnegative().optional()
 });
 
 const assignDriverSchema = z.object({
@@ -40,7 +42,7 @@ export async function add(req: Request, res: Response) {
 export async function update(req: Request, res: Response) {
   const { bookingId, legId } = parseIds(req);
   const input = updateLegSchema.parse(req.body);
-  const booking = await legsService.updateLeg(bookingId, legId, input);
+  const booking = await legsService.updateLeg(bookingId, legId, input, actorFromRequest(req));
   res.json(booking);
 }
 
@@ -50,7 +52,7 @@ export async function assign(req: Request, res: Response) {
   const booking = await legsService.assignDriver(bookingId, legId, driverId);
 
   await writeAuditLog({
-    actorUserId: req.authUser?.id ?? null,
+    actor: actorFromRequest(req),
     action: "LEG_ASSIGN",
     entityType: "Leg",
     entityId: legId,
@@ -65,7 +67,7 @@ export async function cancel(req: Request, res: Response) {
   const booking = await legsService.cancelLeg(bookingId, legId);
 
   await writeAuditLog({
-    actorUserId: req.authUser?.id ?? null,
+    actor: actorFromRequest(req),
     action: "LEG_CANCEL",
     entityType: "Leg",
     entityId: legId

@@ -3,10 +3,12 @@ import { prisma } from "../../config/prisma.js";
 import { NotFoundError } from "../../common/errors.js";
 import { recalculateBookingStatus } from "../bookings/bookings.service.js";
 import { applyLegTransition } from "../bookings/legTransition.js";
+import { createLegEarning } from "../wallet/wallet.service.js";
+import type { AuditActor } from "../../common/audit.js";
 
 const bookingSummaryInclude = {
   booking: {
-    select: { id: true, girlName: true, carFee: true, notes: true, status: true }
+    select: { id: true, girlName: true, totalAmountCents: true, driverPoolAmountCents: true, notes: true, status: true }
   }
 } as const;
 
@@ -69,9 +71,25 @@ export function markPassengerOnBoard(driverId: number, legId: number) {
   });
 }
 
-export function completeLeg(driverId: number, legId: number) {
-  return transitionAndReturn(driverId, legId, ["PASSENGER_ON_BOARD"], {
-    status: "COMPLETED",
-    completedAt: new Date()
+/**
+ * Leg 状态转成 COMPLETED 跟建立 LEG_EARNING 一定要在同一个 DB Transaction 里，
+ * 才能保证「第一次成功变 Completed」跟「产生一笔收入」是同一件事、不会因为中途出错而对不上。
+ */
+export async function completeLeg(driverId: number, legId: number, actor: AuditActor) {
+  const leg = await prisma.$transaction(async (tx) => {
+    const updatedLeg = await applyLegTransition({
+      legId,
+      driverId,
+      fromStatuses: ["PASSENGER_ON_BOARD"],
+      data: { status: "COMPLETED", completedAt: new Date() },
+      client: tx
+    });
+
+    await createLegEarning(tx, updatedLeg, actor);
+
+    return updatedLeg;
   });
+
+  await recalculateBookingStatus(leg.bookingId);
+  return getMyLegOrThrow(driverId, legId);
 }

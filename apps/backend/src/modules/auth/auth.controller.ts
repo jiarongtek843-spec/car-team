@@ -35,7 +35,7 @@ export async function login(req: Request, res: Response) {
   await saveSession(req);
 
   await writeAuditLog({
-    actorUserId: user.id,
+    actor: { id: user.id, role: user.role },
     action: "LOGIN",
     entityType: "User",
     entityId: user.id
@@ -51,7 +51,7 @@ export async function logout(req: Request, res: Response) {
 
   if (userId) {
     await writeAuditLog({
-      actorUserId: userId,
+      actor: { id: userId },
       action: "LOGOUT",
       entityType: "User",
       entityId: userId

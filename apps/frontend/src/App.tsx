@@ -8,6 +8,11 @@ import { LoginPage } from "./modules/auth/LoginPage";
 import { RequireAuth } from "./modules/auth/RequireAuth";
 import { DriverManagementPage } from "./modules/drivers/DriverManagementPage";
 import { DriverJobPage } from "./modules/driverJobs/DriverJobPage";
+import { AdminWalletPage } from "./modules/wallet/AdminWalletPage";
+import { DailySettlementPage } from "./modules/settlement/DailySettlementPage";
+import { SettlementHistoryPage } from "./modules/settlement/SettlementHistoryPage";
+import { MyEarningsPage } from "./modules/driverWallet/MyEarningsPage";
+import { DriverSettlementHistoryPage } from "./modules/driverWallet/DriverSettlementHistoryPage";
 
 function App() {
   return (
@@ -24,6 +29,9 @@ function App() {
         <Route path="/" element={<BookingListPage />} />
         <Route path="/bookings/:id" element={<BookingDetailPage />} />
         <Route path="/drivers" element={<DriverManagementPage />} />
+        <Route path="/wallet" element={<AdminWalletPage />} />
+        <Route path="/settlements/daily" element={<DailySettlementPage />} />
+        <Route path="/settlements/history" element={<SettlementHistoryPage />} />
         <Route path="/health" element={<HealthCheckPage />} />
       </Route>
 
@@ -35,6 +43,8 @@ function App() {
         }
       >
         <Route path="/driver/jobs" element={<DriverJobPage />} />
+        <Route path="/driver/earnings" element={<MyEarningsPage />} />
+        <Route path="/driver/settlements" element={<DriverSettlementHistoryPage />} />
       </Route>
     </Routes>
   );
