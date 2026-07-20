@@ -64,6 +64,35 @@ enum SettlementStatus {
   VOIDED
 }
 
+enum CollectionPaymentMethod {
+  CASH
+  TRANSFER_TO_DRIVER
+  TRANSFER_TO_COMPANY
+  TNG
+  OTHER
+}
+
+enum CollectionPurpose {
+  ITEM_PURCHASE
+  DELIVERY_FEE
+  PARCEL
+  EXTRA_CHARGE
+  PARKING
+  TOLL
+  OTHER
+}
+
+// Collection 是独立于 Wallet 的第二本 Ledger：代表 Driver 暂时替公司保管的钱
+// (公司应收，不是 Driver 收入)。PENDING 保留给未来「Admin 指派代收任务」的流程，
+// 目前 Driver 新增时直接是 COLLECTED（代表钱已经实际收到手上）。
+enum CollectionStatus {
+  PENDING
+  COLLECTED
+  VERIFIED
+  SETTLED
+  VOIDED
+}
+
 // 登入帐号，Admin 和 Driver 共用同一套。Driver 的业务资料在 Driver model，
 // 两者用 userId 关联；Admin 没有对应的 Driver row。
 model User {
@@ -80,6 +109,10 @@ model User {
   walletTransactionsCreated WalletTransaction[] @relation("WalletTransactionCreatedBy")
   settlementsCreated        Settlement[]        @relation("SettlementCreatedBy")
   settlementsVoided         Settlement[]        @relation("SettlementVoidedBy")
+
+  collectionsCreated  Collection[] @relation("CollectionCreatedBy")
+  collectionsVerified Collection[] @relation("CollectionVerifiedBy")
+  collectionsVoided   Collection[] @relation("CollectionVoidedBy")
 
   @@map("users")
 }
@@ -101,6 +134,7 @@ model Driver {
 
   walletTransactions WalletTransaction[]
   settlements        Settlement[]
+  collections        Collection[]
 
   @@map("drivers")
 }
@@ -137,6 +171,7 @@ model Booking {
   legs      Leg[]
 
   walletTransactions WalletTransaction[]
+  collections        Collection[]
 
   @@map("bookings")
 }
@@ -169,6 +204,7 @@ model Leg {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   walletTransactions WalletTransaction[]
+  collections        Collection[]
 
   @@unique([bookingId, sequence])
   @@map("legs")
@@ -220,7 +256,12 @@ model Settlement {
   periodStart    DateTime         @map("period_start") @db.Date
   periodEnd      DateTime         @map("period_end") @db.Date
   status         SettlementStatus @default(DRAFT)
-  netAmountCents Int              @map("net_amount_cents")
+
+  // netAmountCents = walletAmountCents - collectionAmountCents。
+  // 正数代表 Company Pay Driver，负数代表 Driver Need Return Company。
+  walletAmountCents     Int @default(0) @map("wallet_amount_cents")
+  collectionAmountCents Int @default(0) @map("collection_amount_cents")
+  netAmountCents        Int @map("net_amount_cents")
 
   createdAt     DateTime @default(now()) @map("created_at")
   createdBy     Int?     @map("created_by")
@@ -234,8 +275,52 @@ model Settlement {
   items                SettlementItem[]
   transactions         WalletTransaction[] @relation("SettlementTransactions")
   reversalTransactions WalletTransaction[] @relation("SettlementAdjustmentReversal")
+  collections          Collection[]        @relation("SettlementCollections")
 
   @@map("settlements")
+}
+
+// Collection Ledger：Driver 暂时替公司保管的钱（顾客代收/代付），跟 Wallet（公司欠 Driver 的钱）
+// 是两本完全独立的帐，永远不会互相直接修改对方栏位。日结时两本帐才会一起被算成 Net Settlement。
+model Collection {
+  id Int @id @default(autoincrement())
+
+  bookingId Int     @map("booking_id")
+  booking   Booking @relation(fields: [bookingId], references: [id])
+  legId     Int?    @map("leg_id")
+  leg       Leg?    @relation(fields: [legId], references: [id])
+  driverId  Int     @map("driver_id")
+  driver    Driver  @relation(fields: [driverId], references: [id])
+
+  customerName  String?                 @map("customer_name")
+  purpose       CollectionPurpose
+  amountCents   Int                     @map("amount_cents")
+  paymentMethod CollectionPaymentMethod @map("payment_method")
+  status        CollectionStatus        @default(PENDING)
+
+  collectedAt DateTime? @map("collected_at")
+
+  remark        String?
+  proofImageUrl String? @map("proof_image_url")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  createdBy     Int?     @map("created_by")
+  createdByUser User?    @relation("CollectionCreatedBy", fields: [createdBy], references: [id])
+
+  verifiedAt      DateTime? @map("verified_at")
+  verifiedBy      Int?      @map("verified_by")
+  verifiedByUser  User?     @relation("CollectionVerifiedBy", fields: [verifiedBy], references: [id])
+
+  voidedAt   DateTime? @map("voided_at")
+  voidedBy   Int?      @map("voided_by")
+  voidedByUser User?   @relation("CollectionVoidedBy", fields: [voidedBy], references: [id])
+  voidReason String?   @map("void_reason")
+
+  settledAt    DateTime?   @map("settled_at")
+  settlementId Int?        @map("settlement_id")
+  settlement   Settlement? @relation("SettlementCollections", fields: [settlementId], references: [id])
+
+  @@map("collections")
 }
 
 // 记录一笔 Settlement 包含哪些 Wallet Transaction。walletTransactionId 加 @unique，

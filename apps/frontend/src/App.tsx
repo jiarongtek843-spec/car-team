@@ -13,6 +13,8 @@ import { DailySettlementPage } from "./modules/settlement/DailySettlementPage";
 import { SettlementHistoryPage } from "./modules/settlement/SettlementHistoryPage";
 import { MyEarningsPage } from "./modules/driverWallet/MyEarningsPage";
 import { DriverSettlementHistoryPage } from "./modules/driverWallet/DriverSettlementHistoryPage";
+import { AdminCollectionPage } from "./modules/collections/AdminCollectionPage";
+import { DriverCollectionPage } from "./modules/collections/DriverCollectionPage";
 
 function App() {
   return (
@@ -32,6 +34,7 @@ function App() {
         <Route path="/wallet" element={<AdminWalletPage />} />
         <Route path="/settlements/daily" element={<DailySettlementPage />} />
         <Route path="/settlements/history" element={<SettlementHistoryPage />} />
+        <Route path="/collections" element={<AdminCollectionPage />} />
         <Route path="/health" element={<HealthCheckPage />} />
       </Route>
 
@@ -45,6 +48,7 @@ function App() {
         <Route path="/driver/jobs" element={<DriverJobPage />} />
         <Route path="/driver/earnings" element={<MyEarningsPage />} />
         <Route path="/driver/settlements" element={<DriverSettlementHistoryPage />} />
+        <Route path="/driver/collections" element={<DriverCollectionPage />} />
       </Route>
     </Routes>
   );

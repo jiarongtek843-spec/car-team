@@ -1,4 +1,5 @@
 import type { WalletTransaction } from "../wallet/types";
+import type { Collection } from "../collections/types";
 
 export type SettlementStatus = "DRAFT" | "COMPLETED" | "VOIDED";
 
@@ -8,9 +9,13 @@ export interface SettlementPreview {
   periodEnd: string;
   transactions: WalletTransaction[];
   excludedTransactions: WalletTransaction[];
+  collections: Collection[];
+  excludedCollections: Collection[];
   completedLegEarningsCents: number;
   positiveAdjustmentsCents: number;
   negativeAdjustmentsCents: number;
+  walletAmountCents: number;
+  collectionAmountCents: number;
   netAmountCents: number;
 }
 
@@ -28,6 +33,8 @@ export interface Settlement {
   periodStart: string;
   periodEnd: string;
   status: SettlementStatus;
+  walletAmountCents: number;
+  collectionAmountCents: number;
   netAmountCents: number;
   createdAt: string;
   createdByUser: { id: number; username: string } | null;
@@ -36,4 +43,5 @@ export interface Settlement {
   voidReason: string | null;
   items?: SettlementItem[];
   reversalTransactions?: WalletTransaction[];
+  collections?: Collection[];
 }

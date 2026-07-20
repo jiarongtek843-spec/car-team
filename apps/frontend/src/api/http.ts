@@ -28,11 +28,28 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function requestForm<T>(path: string, formData: FormData): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    credentials: "include",
+    body: formData
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body.error ?? `API error ${res.status}`);
+  }
+
+  return res.json() as Promise<T>;
+}
+
 export const http = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" })
+  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  // 上传文件用，不能设 Content-Type: application/json——浏览器要自己带 multipart boundary。
+  postForm: <T>(path: string, formData: FormData) => requestForm<T>(path, formData)
 };

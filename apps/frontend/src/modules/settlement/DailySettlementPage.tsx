@@ -4,6 +4,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import { useDriversQuery } from "../drivers/hooks";
 import { useConfirmSettlementMutation, useSettlementPreviewQuery } from "./hooks";
 import { WalletTransactionTable } from "../wallet/components/WalletTransactionTable";
+import { CollectionTable } from "../collections/components/CollectionTable";
 import { formatCents } from "../../lib/money";
 
 export function DailySettlementPage() {
@@ -21,6 +22,8 @@ export function DailySettlementPage() {
     const settlement = await confirmSettlement.mutateAsync({ driverId, periodStart, periodEnd });
     message.success(`日结完成，Reference: ${settlement.reference}`);
   }
+
+  const hasNothingToSettle = preview && preview.transactions.length === 0 && preview.collections.length === 0;
 
   return (
     <div style={{ padding: 24 }}>
@@ -44,10 +47,14 @@ export function DailySettlementPage() {
         <Card loading={isFetching} title="Settlement Preview">
           {preview && (
             <>
-              <Descriptions column={2} style={{ marginBottom: 16 }}>
+              <Descriptions column={2} style={{ marginBottom: 16 }} bordered size="small">
                 <Descriptions.Item label="Driver">{preview.driver.name}</Descriptions.Item>
                 <Descriptions.Item label="Net Settlement Amount">
-                  <Typography.Text strong>{formatCents(preview.netAmountCents)}</Typography.Text>
+                  <Typography.Text strong style={{ color: preview.netAmountCents < 0 ? "#cf1322" : undefined }}>
+                    {preview.netAmountCents >= 0
+                      ? `Company Pay Driver ${formatCents(preview.netAmountCents)}`
+                      : `Driver Need Return Company ${formatCents(-preview.netAmountCents)}`}
+                  </Typography.Text>
                 </Descriptions.Item>
                 <Descriptions.Item label="Period Start">
                   {new Date(preview.periodStart).toLocaleDateString()}
@@ -55,6 +62,8 @@ export function DailySettlementPage() {
                 <Descriptions.Item label="Period End">
                   {new Date(preview.periodEnd).toLocaleDateString()}
                 </Descriptions.Item>
+                <Descriptions.Item label="Driver Earnings (Wallet)">{formatCents(preview.walletAmountCents)}</Descriptions.Item>
+                <Descriptions.Item label="Collection（代收款）">{formatCents(preview.collectionAmountCents)}</Descriptions.Item>
                 <Descriptions.Item label="Completed Leg Earnings">
                   {formatCents(preview.completedLegEarningsCents)}
                 </Descriptions.Item>
@@ -66,12 +75,24 @@ export function DailySettlementPage() {
                 </Descriptions.Item>
               </Descriptions>
 
-              {preview.transactions.length === 0 ? (
+              {hasNothingToSettle ? (
                 <Alert type="info" message="这个周期内没有可结算的项目" showIcon style={{ marginBottom: 16 }} />
               ) : (
                 <>
-                  <Typography.Text strong>Included Transactions</Typography.Text>
-                  <WalletTransactionTable data={preview.transactions} loading={false} pagination={false} />
+                  {preview.transactions.length > 0 && (
+                    <>
+                      <Typography.Text strong>Included Wallet Transactions</Typography.Text>
+                      <WalletTransactionTable data={preview.transactions} loading={false} pagination={false} />
+                    </>
+                  )}
+                  {preview.collections.length > 0 && (
+                    <>
+                      <Typography.Text strong style={{ marginTop: 16, display: "block" }}>
+                        Included Collections
+                      </Typography.Text>
+                      <CollectionTable data={preview.collections} loading={false} pagination={false} />
+                    </>
+                  )}
                 </>
               )}
 
@@ -81,17 +102,30 @@ export function DailySettlementPage() {
                     type="warning"
                     showIcon
                     style={{ marginTop: 16, marginBottom: 8 }}
-                    message={`这个 Driver 还有 ${preview.excludedTransactions.length} 笔待结算项目落在这个周期之外，不会被这次日结纳入`}
+                    message={`这个 Driver 还有 ${preview.excludedTransactions.length} 笔待结算 Wallet 项目落在这个周期之外，不会被这次日结纳入`}
                   />
-                  <Typography.Text strong>Excluded Transactions</Typography.Text>
+                  <Typography.Text strong>Excluded Wallet Transactions</Typography.Text>
                   <WalletTransactionTable data={preview.excludedTransactions} loading={false} pagination={false} />
+                </>
+              )}
+
+              {preview.excludedCollections.length > 0 && (
+                <>
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginTop: 16, marginBottom: 8 }}
+                    message={`这个 Driver 还有 ${preview.excludedCollections.length} 笔已 Verified 的 Collection 落在这个周期之外，不会被这次日结纳入`}
+                  />
+                  <Typography.Text strong>Excluded Collections</Typography.Text>
+                  <CollectionTable data={preview.excludedCollections} loading={false} pagination={false} />
                 </>
               )}
 
               <Button
                 type="primary"
                 style={{ marginTop: 16 }}
-                disabled={preview.transactions.length === 0}
+                disabled={hasNothingToSettle}
                 loading={confirmSettlement.isPending}
                 onClick={handleConfirm}
               >

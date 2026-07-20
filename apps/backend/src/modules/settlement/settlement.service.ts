@@ -3,6 +3,12 @@ import { prisma } from "../../config/prisma.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import { createReversalTransaction } from "../wallet/wallet.service.js";
+import {
+  getCollectionsInPeriod,
+  getCollectionsOutsidePeriod,
+  reopenCollectionsForVoidedSettlement,
+  sumCollectionAmountCents
+} from "../collections/collection.service.js";
 
 type TxClient = Prisma.TransactionClient;
 
@@ -46,7 +52,7 @@ async function getTransactionsOutsidePeriod(driverId: number, periodStart: Date,
   });
 }
 
-function summarize(transactions: { transactionType: string; amountCents: number }[]) {
+function summarizeWallet(transactions: { transactionType: string; amountCents: number }[]) {
   let completedLegEarningsCents = 0;
   let positiveAdjustmentsCents = 0;
   let negativeAdjustmentsCents = 0;
@@ -61,9 +67,9 @@ function summarize(transactions: { transactionType: string; amountCents: number 
     }
   }
 
-  const netAmountCents = completedLegEarningsCents + positiveAdjustmentsCents + negativeAdjustmentsCents;
+  const walletAmountCents = completedLegEarningsCents + positiveAdjustmentsCents + negativeAdjustmentsCents;
 
-  return { completedLegEarningsCents, positiveAdjustmentsCents, negativeAdjustmentsCents, netAmountCents };
+  return { completedLegEarningsCents, positiveAdjustmentsCents, negativeAdjustmentsCents, walletAmountCents };
 }
 
 function parsePeriod(periodStartStr: string, periodEndStr: string) {
@@ -75,6 +81,11 @@ function parsePeriod(periodStartStr: string, periodEndStr: string) {
   return { periodStart, periodEnd };
 }
 
+/**
+ * Wallet（公司欠 Driver）跟 Collection（Driver 欠公司）是两本独立的 Ledger，Collection 永远
+ * 不会直接修改 Wallet 的任何栏位——这里只在计算 Settlement 净额时把两本帐的总和相减一次。
+ * netAmountCents 为正代表 Company Pay Driver，为负代表 Driver Need Return Company。
+ */
 export async function previewSettlement(driverId: number, periodStartStr: string, periodEndStr: string) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) {
@@ -83,10 +94,15 @@ export async function previewSettlement(driverId: number, periodStartStr: string
 
   const { periodStart, periodEnd } = parsePeriod(periodStartStr, periodEndStr);
 
-  const [includedTransactions, excludedTransactions] = await Promise.all([
+  const [includedTransactions, excludedTransactions, includedCollections, excludedCollections] = await Promise.all([
     getTransactionsInPeriod(driverId, periodStart, periodEnd),
-    getTransactionsOutsidePeriod(driverId, periodStart, periodEnd)
+    getTransactionsOutsidePeriod(driverId, periodStart, periodEnd),
+    getCollectionsInPeriod(driverId, periodStart, periodEnd),
+    getCollectionsOutsidePeriod(driverId, periodStart, periodEnd)
   ]);
+
+  const walletSummary = summarizeWallet(includedTransactions);
+  const collectionAmountCents = sumCollectionAmountCents(includedCollections);
 
   return {
     driver,
@@ -94,7 +110,11 @@ export async function previewSettlement(driverId: number, periodStartStr: string
     periodEnd,
     transactions: includedTransactions,
     excludedTransactions,
-    ...summarize(includedTransactions)
+    collections: includedCollections,
+    excludedCollections,
+    ...walletSummary,
+    collectionAmountCents,
+    netAmountCents: walletSummary.walletAmountCents - collectionAmountCents
   };
 }
 
@@ -128,14 +148,20 @@ export async function confirmSettlement(
   const { periodStart, periodEnd } = parsePeriod(periodStartStr, periodEndStr);
 
   // Backend 自己重新算一次，绝对不相信前端传来的列表或总额。
-  const transactions = await getTransactionsInPeriod(driverId, periodStart, periodEnd);
+  const [transactions, collections] = await Promise.all([
+    getTransactionsInPeriod(driverId, periodStart, periodEnd),
+    getCollectionsInPeriod(driverId, periodStart, periodEnd)
+  ]);
 
-  if (transactions.length === 0) {
-    throw new ValidationError("No pending transactions to settle for this driver in this period");
+  if (transactions.length === 0 && collections.length === 0) {
+    throw new ValidationError("No pending wallet transactions or verified collections to settle for this driver in this period");
   }
 
-  const { netAmountCents } = summarize(transactions);
+  const { walletAmountCents } = summarizeWallet(transactions);
+  const collectionAmountCents = sumCollectionAmountCents(collections);
+  const netAmountCents = walletAmountCents - collectionAmountCents;
   const transactionIds = transactions.map((tx) => tx.id);
+  const collectionIds = collections.map((c) => c.id);
 
   const settlement = await prisma.$transaction(async (tx) => {
     const reference = await generateSettlementReference(tx, new Date());
@@ -147,6 +173,8 @@ export async function confirmSettlement(
         periodStart,
         periodEnd,
         status: "COMPLETED",
+        walletAmountCents,
+        collectionAmountCents,
         netAmountCents,
         createdBy: actor.id
       }
@@ -173,6 +201,19 @@ export async function confirmSettlement(
       );
     }
 
+    if (collectionIds.length > 0) {
+      const settledCollections = await tx.collection.updateMany({
+        where: { id: { in: collectionIds }, status: "VERIFIED" },
+        data: { status: "SETTLED", settledAt: new Date(), settlementId: created.id }
+      });
+
+      if (settledCollections.count !== collectionIds.length) {
+        throw new ConflictError(
+          "Some collections were already settled by another request; please retry the settlement"
+        );
+      }
+    }
+
     await writeAuditLog(
       {
         actor,
@@ -184,8 +225,11 @@ export async function confirmSettlement(
           driverId,
           periodStart,
           periodEnd,
+          walletAmountCents,
+          collectionAmountCents,
           netAmountCents,
-          transactionCount: transactionIds.length
+          transactionCount: transactionIds.length,
+          collectionCount: collectionIds.length
         }
       },
       tx
@@ -200,7 +244,7 @@ export async function confirmSettlement(
 export async function voidSettlement(settlementId: number, reason: string, actor: AuditActor) {
   const settlement = await prisma.settlement.findUnique({
     where: { id: settlementId },
-    include: { items: { include: { walletTransaction: true } } }
+    include: { items: { include: { walletTransaction: true } }, collections: true }
   });
   if (!settlement) {
     throw new NotFoundError(`Settlement ${settlementId} not found`);
@@ -221,7 +265,7 @@ export async function voidSettlement(settlementId: number, reason: string, actor
       throw new ConflictError("Settlement was already voided or modified by another request");
     }
 
-    // 原本已经 SETTLED 的 Transaction 完全不动，只针对每一笔原本结算的金额建一笔反向纪录，
+    // 原本已经 SETTLED 的 Wallet Transaction 完全不动，只针对每一笔原本结算的金额建一笔反向纪录，
     // PENDING 状态、会在下一次日结被纳入。
     for (const item of settlement.items) {
       const original = item.walletTransaction;
@@ -238,6 +282,10 @@ export async function voidSettlement(settlementId: number, reason: string, actor
       );
     }
 
+    // Collection 不是不可变金额帐本，只是工作流程状态，所以直接把 SETTLED 打回 VERIFIED，
+    // 让它们回到「还没被任何 Settlement 处理」的状态，可以被下一次日结纳入。
+    await reopenCollectionsForVoidedSettlement(tx, settlementId, settlement.collections.length);
+
     await writeAuditLog(
       {
         actor,
@@ -246,7 +294,10 @@ export async function voidSettlement(settlementId: number, reason: string, actor
         entityId: settlementId,
         beforeData: { status: "COMPLETED" },
         afterData: { status: "VOIDED", reason },
-        metadata: { reversalTransactionCount: settlement.items.length }
+        metadata: {
+          reversalTransactionCount: settlement.items.length,
+          collectionsReopenedCount: settlement.collections.length
+        }
       },
       tx
     );
@@ -269,7 +320,13 @@ const settlementDetailInclude = {
       }
     }
   },
-  reversalTransactions: true
+  reversalTransactions: true,
+  collections: {
+    include: {
+      booking: { select: { id: true, girlName: true } },
+      leg: { select: { id: true, sequence: true } }
+    }
+  }
 } satisfies Prisma.SettlementInclude;
 
 export async function getSettlementById(id: number) {

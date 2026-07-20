@@ -32,7 +32,15 @@ export function SettlementHistoryPage() {
       render: (_, record) =>
         `${new Date(record.periodStart).toLocaleDateString()} ~ ${new Date(record.periodEnd).toLocaleDateString()}`
     },
-    { title: "Net Amount", dataIndex: "netAmountCents", render: (v: number) => formatCents(v) },
+    { title: "Wallet (Earnings)", dataIndex: "walletAmountCents", render: (v: number) => formatCents(v) },
+    { title: "Collection", dataIndex: "collectionAmountCents", render: (v: number) => formatCents(v) },
+    {
+      title: "Net Amount",
+      dataIndex: "netAmountCents",
+      render: (v: number) => (
+        <span style={{ color: v < 0 ? "#cf1322" : undefined }}>{v >= 0 ? formatCents(v) : `-${formatCents(-v)}`}</span>
+      )
+    },
     {
       title: "Status",
       dataIndex: "status",

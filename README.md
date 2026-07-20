@@ -49,3 +49,7 @@ apps/frontend/   React + Vite + TypeScript + Ant Design SPA
 packages/        前后端共用的 TS 类型
 docs/            架构与模块规格文件
 ```
+
+## 上传档案（Collection 代收款证明图片）
+
+Collection 模块的收据/转账截图目前存在本地磁盘 `apps/backend/uploads/`（已加进 `.gitignore`，不会被提交）。部署到 Railway 等平台时，这个目录在重新部署后会被清空，正式环境需要挂载 persistent volume 或改用云端对象存储，详见 [docs/modules/collection.md](docs/modules/collection.md) 的已知限制。

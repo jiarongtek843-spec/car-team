@@ -41,6 +41,10 @@ Admin 可以帮某个 Driver 针对指定的时间区间做「日结」（Daily 
 - `relatedSettlementId`：反向纪录专用栏位，指向被 Void 的那笔 Settlement，跟「这笔交易被结算在哪个 Settlement 里」的 `settlementId` 是两个独立栏位，不会混在一起。
 - 要更正一笔已经产生的 Transaction，一律新增一笔新的（`MANUAL_ADJUSTMENT` 或 `SETTLEMENT_ADJUSTMENT`），永远不会去改或删原本那笔。
 
+## 与 Collection Ledger 的整合
+
+Module 4 新增了 [Collection（代收款）](./collection.md)——一本跟 Wallet 完全独立的第二本帐（Driver 暂时替公司保管的钱，不是收入）。Daily Settlement 现在会同时结算这两本帐：`Settlement.walletAmountCents`（原本这里唯一的 net，现在改名）减去 `Settlement.collectionAmountCents` 才是最终的 `netAmountCents`。Collection 的建立/Verify/Void 逻辑完全在 Collection 模块自己的 service 里，Wallet 这边的 `WalletTransaction`/`createAdjustment`/`createReversalTransaction` 完全没有改动——两本帐只在 `settlement.service.ts` 计算净额时被放在一起相减一次，详见 [collection.md](./collection.md)。
+
 ## Daily Settlement（区间制）
 
 - `Settlement` 记录一个明确的 `periodStart`/`periodEnd`（日期），不再是「结算这天为止所有还没结算的」累积模式——只有 `effectiveDate` 落在这个区间内的 PENDING Transaction 会被这次结算纳入，区间外的 PENDING Transaction 保持不动，留给以后的结算。

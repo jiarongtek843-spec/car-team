@@ -7,7 +7,8 @@ const { Header, Content } = Layout;
 const NAV_ITEMS = [
   { key: "/driver/jobs", label: <Link to="/driver/jobs">我的工作</Link> },
   { key: "/driver/earnings", label: <Link to="/driver/earnings">My Earnings</Link> },
-  { key: "/driver/settlements", label: <Link to="/driver/settlements">Settlement History</Link> }
+  { key: "/driver/settlements", label: <Link to="/driver/settlements">Settlement History</Link> },
+  { key: "/driver/collections", label: <Link to="/driver/collections">Collection</Link> }
 ];
 
 export function DriverLayout() {

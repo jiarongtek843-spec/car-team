@@ -12,7 +12,10 @@ import { walletRouter } from "./modules/wallet/wallet.routes.js";
 import { driverWalletRouter } from "./modules/wallet/driverWallet.routes.js";
 import { settlementRouter } from "./modules/settlement/settlement.routes.js";
 import { driverSettlementRouter } from "./modules/settlement/driverSettlement.routes.js";
+import { collectionRouter } from "./modules/collections/collection.routes.js";
+import { driverCollectionRouter } from "./modules/collections/driverCollection.routes.js";
 import { errorHandler } from "./common/errorHandler.js";
+import { uploadsRoot } from "./common/upload.js";
 
 export const app = express();
 
@@ -20,6 +23,7 @@ app.set("trust proxy", 1);
 app.use(cors({ origin: env.corsOrigin, credentials: true }));
 app.use(express.json());
 app.use(sessionMiddleware);
+app.use("/uploads", express.static(uploadsRoot));
 
 app.use("/api/health", healthRouter);
 app.use("/api/auth", authRouter);
@@ -31,5 +35,7 @@ app.use("/api/admin/wallet", walletRouter);
 app.use("/api/driver/wallet", driverWalletRouter);
 app.use("/api/admin/settlements", settlementRouter);
 app.use("/api/driver/settlements", driverSettlementRouter);
+app.use("/api/admin/collections", collectionRouter);
+app.use("/api/driver/collections", driverCollectionRouter);
 
 app.use(errorHandler);
