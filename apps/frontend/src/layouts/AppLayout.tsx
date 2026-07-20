@@ -5,6 +5,7 @@ import { useAuth } from "../modules/auth/AuthContext";
 const { Header, Content } = Layout;
 
 const NAV_ITEMS = [
+  { key: "/dispatch", label: <Link to="/dispatch">Dispatch Center</Link> },
   { key: "/", label: <Link to="/">Booking</Link> },
   { key: "/drivers", label: <Link to="/drivers">Driver</Link> },
   { key: "/wallet", label: <Link to="/wallet">Wallet</Link> },

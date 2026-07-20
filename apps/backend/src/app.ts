@@ -16,6 +16,7 @@ import { collectionRouter } from "./modules/collections/collection.routes.js";
 import { driverCollectionRouter } from "./modules/collections/driverCollection.routes.js";
 import { gpsRouter } from "./modules/gps/gps.routes.js";
 import { driverPresenceRouter } from "./modules/gps/driverPresence.routes.js";
+import { dispatchRouter } from "./modules/dispatch/dispatch.routes.js";
 import { errorHandler } from "./common/errorHandler.js";
 import { uploadsRoot } from "./common/upload.js";
 
@@ -41,5 +42,6 @@ app.use("/api/admin/collections", collectionRouter);
 app.use("/api/driver/collections", driverCollectionRouter);
 app.use("/api/admin/gps", gpsRouter);
 app.use("/api/driver/presence", driverPresenceRouter);
+app.use("/api/admin/dispatch", dispatchRouter);
 
 app.use(errorHandler);

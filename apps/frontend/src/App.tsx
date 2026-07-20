@@ -16,6 +16,7 @@ import { DriverSettlementHistoryPage } from "./modules/driverWallet/DriverSettle
 import { AdminCollectionPage } from "./modules/collections/AdminCollectionPage";
 import { DriverCollectionPage } from "./modules/collections/DriverCollectionPage";
 import { AdminGpsDashboardPage } from "./modules/gps/AdminGpsDashboardPage";
+import { DispatchCenterPage } from "./modules/dispatch/DispatchCenterPage";
 
 function App() {
   return (
@@ -30,6 +31,7 @@ function App() {
         }
       >
         <Route path="/" element={<BookingListPage />} />
+        <Route path="/dispatch" element={<DispatchCenterPage />} />
         <Route path="/bookings/:id" element={<BookingDetailPage />} />
         <Route path="/drivers" element={<DriverManagementPage />} />
         <Route path="/wallet" element={<AdminWalletPage />} />
