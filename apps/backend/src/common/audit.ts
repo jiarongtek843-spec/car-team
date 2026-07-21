@@ -1,12 +1,13 @@
 import type { Request } from "express";
-import type { Prisma, UserRole } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
+import type { RoleKey } from "./permissions.js";
 
 /** 操作者身份，从 req.authUser 直接带过来，null 代表系统自动触发（目前没有这种情况，保留给未来）。 */
 export interface AuditActor {
   id: number;
   /** 大多数情况下都知道；少数没有登入态可查的场合（例如未验证的 logout）可以省略。 */
-  role?: UserRole;
+  role?: RoleKey;
 }
 
 interface WriteAuditLogInput {
@@ -30,7 +31,7 @@ function toJsonSafe(value: unknown): Prisma.InputJsonValue | undefined {
 
 /** 从 requireAuth 附加在 req 上的 authUser 取出 { id, role }，方便 controller 一行搞定。 */
 export function actorFromRequest(req: Request): AuditActor | null {
-  return req.authUser ? { id: req.authUser.id, role: req.authUser.role } : null;
+  return req.authUser ? { id: req.authUser.id, role: req.authUser.role.key } : null;
 }
 
 export function writeAuditLog(input: WriteAuditLogInput, client: Prisma.TransactionClient | typeof prisma = prisma) {

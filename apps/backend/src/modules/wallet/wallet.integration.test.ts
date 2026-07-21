@@ -18,7 +18,7 @@ let systemActor: AuditActor;
 
 beforeAll(async () => {
   const admin = await prisma.user.findUniqueOrThrow({ where: { username: "admin" } });
-  systemActor = { id: admin.id, role: "ADMIN" };
+  systemActor = { id: admin.id, role: "OWNER" };
 });
 
 /** 直接把 Leg 推到 PASSENGER_ON_BOARD，跳过 Accept/Arriving 这些中间步骤，

@@ -17,7 +17,7 @@ let systemActor: AuditActor;
 
 beforeAll(async () => {
   const admin = await prisma.user.findUniqueOrThrow({ where: { username: "admin" } });
-  systemActor = { id: admin.id, role: "ADMIN" };
+  systemActor = { id: admin.id, role: "OWNER" };
 });
 
 // 用「本地」日历日期，理由同 wallet.integration.test.ts 的 toDateStr。

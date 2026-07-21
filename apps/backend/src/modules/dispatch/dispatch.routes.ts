@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { asyncHandler } from "../../common/asyncHandler.js";
 import * as dispatchController from "./dispatch.controller.js";
-import { requireAuth, requireRole } from "../auth/auth.middleware.js";
+import { requireAuth, requirePermission } from "../auth/auth.middleware.js";
+import { PERMISSIONS } from "../../common/permissions.js";
 
 export const dispatchRouter = Router();
 
-dispatchRouter.use(requireAuth, requireRole("ADMIN"));
+dispatchRouter.use(requireAuth, requirePermission(PERMISSIONS.DISPATCH_READ));
 
 dispatchRouter.get("/waiting-bookings", asyncHandler(dispatchController.waitingBookings));
 dispatchRouter.get("/drivers", asyncHandler(dispatchController.drivers));

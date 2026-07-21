@@ -2,10 +2,12 @@
 
 ## 概念
 
-两个角色：`ADMIN`、`DRIVER`。客户不开帐号、不登入系统。
+> Module 7（RBAC）之后，角色已经从 `ADMIN`/`DRIVER` 扩充成 `OWNER`/`MANAGER`/`DISPATCHER`/`DRIVER`，详见 [rbac.md](rbac.md)。本文件下方仍保留「ADMIN」字样的地方，指的是 Module 7 之前设计的「管理端角色」概念，实际现在对应 OWNER/MANAGER/DISPATCHER 三个角色的其中一个，依各自的 Permission 决定能不能用。
+
+客户不开帐号、不登入系统。
 
 登入帐号（`User`）跟司机业务资料（`Driver`）分开存，用 `Driver.userId` 关联：
-- `User`：username、passwordHash（bcrypt）、role（ADMIN|DRIVER）、status（ACTIVE|DISABLED）
+- `User`：username、passwordHash（bcrypt）、roleId（外键，指向 `roles` 表）、status（ACTIVE|DISABLED）
 - `Driver`：业务资料（name、phone、vehiclePlateNumber、remark），沿用 Module 1 就有的表，只是加了栏位，没有另外建一套
 - Admin 帐号是纯 `User`，没有对应的 `Driver` row
 - Driver 是否能登入，看 `Driver.status`（沿用既有栏位，不另外加一个重复的开关）；`User.status` 是独立的帐号层级停用开关（Admin/Driver 都适用，目前只有 Driver Management 页面用到它作为「启用/停用」）
@@ -16,7 +18,7 @@ httpOnly cookie session（express-session + connect-pg-simple，session 存在 P
 
 每次受保护请求都会从 DB 重新读一次当前用户和（如果是 Driver）关联的 Driver 状态，确认还是 ACTIVE 才放行——帐号被停用后，就算 session 还没过期，下一个请求就会立刻被拒绝，不用等重新登入才生效。
 
-`requireAuth` middleware 验证登入；`requireRole("ADMIN"|"DRIVER")` 做角色限制。前端对应 `RequireAuth` 元件依角色导去不同页面：ADMIN → Booking 列表，DRIVER → 我的工作页；进错角色的路由会被导回自己该去的地方。
+`requireAuth` middleware 验证登入；`requirePermission(key)` 做权限限制（Module 7 起取代原本的 `requireRole`，详见 [rbac.md](rbac.md)）。前端对应 `RequireAuth` 元件依角色导去不同 Portal：管理端角色（OWNER/MANAGER/DISPATCHER）→ Booking 列表，DRIVER → 我的工作页；进错 Portal 或没有对应 Permission 的路由会被导回自己该去的地方。
 
 ## API
 
@@ -24,13 +26,13 @@ httpOnly cookie session（express-session + connect-pg-simple，session 存在 P
 - `POST /api/auth/logout`
 - `GET /api/auth/me` — 目前登入者
 
-- `GET /api/drivers` — 列表（含 username、是否有未完成 Leg），ADMIN only
+- `GET /api/drivers` — 列表（含 username、是否有未完成 Leg），需要 `driver:read`
 - `POST /api/drivers` — 新增（`username`/`password` 可选，不填代表这个 Driver 暂时没有登入帐号）
 - `PATCH /api/drivers/:id` — 改业务资料（不含 username/password）
 - `POST /api/drivers/:id/status` — 启用/停用
 - `POST /api/drivers/:id/reset-password` — 重设密码
 
-- `GET /api/driver/legs` — 目前登入 Driver 自己的所有 Leg，DRIVER only
+- `GET /api/driver/legs` — 目前登入 Driver 自己的所有 Leg，需要 `driverJobs:self`
 - `POST /api/driver/legs/:legId/accept`
 - `POST /api/driver/legs/:legId/reject` — `{reason}`
 - `POST /api/driver/legs/:legId/arriving`

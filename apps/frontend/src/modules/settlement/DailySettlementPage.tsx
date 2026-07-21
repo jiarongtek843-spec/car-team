@@ -6,6 +6,8 @@ import { useConfirmSettlementMutation, useSettlementPreviewQuery } from "./hooks
 import { WalletTransactionTable } from "../wallet/components/WalletTransactionTable";
 import { CollectionTable } from "../collections/components/CollectionTable";
 import { formatCents } from "../../lib/money";
+import { PermissionGate } from "../auth/PermissionGate";
+import { PERMISSIONS } from "../../common/permissions";
 
 export function DailySettlementPage() {
   const [driverId, setDriverId] = useState<number | undefined>(undefined);
@@ -122,15 +124,17 @@ export function DailySettlementPage() {
                 </>
               )}
 
-              <Button
-                type="primary"
-                style={{ marginTop: 16 }}
-                disabled={hasNothingToSettle}
-                loading={confirmSettlement.isPending}
-                onClick={handleConfirm}
-              >
-                Confirm Settlement
-              </Button>
+              <PermissionGate permission={PERMISSIONS.SETTLEMENT_WRITE}>
+                <Button
+                  type="primary"
+                  style={{ marginTop: 16 }}
+                  disabled={hasNothingToSettle}
+                  loading={confirmSettlement.isPending}
+                  onClick={handleConfirm}
+                >
+                  Confirm Settlement
+                </Button>
+              </PermissionGate>
             </>
           )}
         </Card>

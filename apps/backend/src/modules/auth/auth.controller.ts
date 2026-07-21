@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import * as authService from "./auth.service.js";
 import { writeAuditLog } from "../../common/audit.js";
+import type { RoleKey } from "../../common/permissions.js";
 
 const loginSchema = z.object({
   username: z.string().min(1),
@@ -35,7 +36,7 @@ export async function login(req: Request, res: Response) {
   await saveSession(req);
 
   await writeAuditLog({
-    actor: { id: user.id, role: user.role },
+    actor: { id: user.id, role: user.role.key as RoleKey },
     action: "LOGIN",
     entityType: "User",
     entityId: user.id

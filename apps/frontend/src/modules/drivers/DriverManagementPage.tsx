@@ -6,6 +6,8 @@ import { CreateDriverModal } from "./components/CreateDriverModal";
 import { EditDriverModal } from "./components/EditDriverModal";
 import { ResetPasswordModal } from "./components/ResetPasswordModal";
 import type { Driver } from "../../types/booking";
+import { PermissionGate } from "../auth/PermissionGate";
+import { PERMISSIONS } from "../../common/permissions";
 
 export function DriverManagementPage() {
   const { data: drivers, isLoading } = useDriversQuery();
@@ -35,24 +37,26 @@ export function DriverManagementPage() {
     {
       title: "操作",
       render: (_, driver) => (
-        <Space>
-          <a onClick={() => setEditingDriver(driver)}>编辑</a>
-          {driver.username && <a onClick={() => setResettingDriver(driver)}>重设密码</a>}
-          <Popconfirm
-            title={driver.status === "ACTIVE" ? "确定要停用这位 Driver 吗？" : "确定要启用这位 Driver 吗？"}
-            onConfirm={async () => {
-              await setStatus.mutateAsync({
-                id: driver.id,
-                status: driver.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"
-              });
-              message.success("状态已更新");
-            }}
-          >
-            <a style={{ color: driver.status === "ACTIVE" ? "#ff4d4f" : undefined }}>
-              {driver.status === "ACTIVE" ? "停用" : "启用"}
-            </a>
-          </Popconfirm>
-        </Space>
+        <PermissionGate permission={PERMISSIONS.DRIVER_WRITE}>
+          <Space>
+            <a onClick={() => setEditingDriver(driver)}>编辑</a>
+            {driver.username && <a onClick={() => setResettingDriver(driver)}>重设密码</a>}
+            <Popconfirm
+              title={driver.status === "ACTIVE" ? "确定要停用这位 Driver 吗？" : "确定要启用这位 Driver 吗？"}
+              onConfirm={async () => {
+                await setStatus.mutateAsync({
+                  id: driver.id,
+                  status: driver.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"
+                });
+                message.success("状态已更新");
+              }}
+            >
+              <a style={{ color: driver.status === "ACTIVE" ? "#ff4d4f" : undefined }}>
+                {driver.status === "ACTIVE" ? "停用" : "启用"}
+              </a>
+            </Popconfirm>
+          </Space>
+        </PermissionGate>
       )
     }
   ];
@@ -63,9 +67,11 @@ export function DriverManagementPage() {
         <Typography.Title level={4} style={{ margin: 0 }}>
           Driver Management
         </Typography.Title>
-        <Button type="primary" onClick={() => setCreateOpen(true)}>
-          + 新增 Driver
-        </Button>
+        <PermissionGate permission={PERMISSIONS.DRIVER_WRITE}>
+          <Button type="primary" onClick={() => setCreateOpen(true)}>
+            + 新增 Driver
+          </Button>
+        </PermissionGate>
       </Space>
 
       <Table rowKey="id" loading={isLoading} dataSource={drivers} columns={columns} />

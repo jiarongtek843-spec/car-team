@@ -6,6 +6,7 @@ import { BookingDetailPage } from "./modules/bookings/BookingDetailPage";
 import { HealthCheckPage } from "./modules/health/HealthCheckPage";
 import { LoginPage } from "./modules/auth/LoginPage";
 import { RequireAuth } from "./modules/auth/RequireAuth";
+import { RequirePermission } from "./modules/auth/RequirePermission";
 import { DriverManagementPage } from "./modules/drivers/DriverManagementPage";
 import { DriverJobPage } from "./modules/driverJobs/DriverJobPage";
 import { AdminWalletPage } from "./modules/wallet/AdminWalletPage";
@@ -17,6 +18,7 @@ import { AdminCollectionPage } from "./modules/collections/AdminCollectionPage";
 import { DriverCollectionPage } from "./modules/collections/DriverCollectionPage";
 import { AdminGpsDashboardPage } from "./modules/gps/AdminGpsDashboardPage";
 import { DispatchCenterPage } from "./modules/dispatch/DispatchCenterPage";
+import { PERMISSIONS } from "./common/permissions";
 
 function App() {
   return (
@@ -25,34 +27,125 @@ function App() {
 
       <Route
         element={
-          <RequireAuth role="ADMIN">
+          <RequireAuth portal="admin">
             <AppLayout />
           </RequireAuth>
         }
       >
-        <Route path="/" element={<BookingListPage />} />
-        <Route path="/dispatch" element={<DispatchCenterPage />} />
-        <Route path="/bookings/:id" element={<BookingDetailPage />} />
-        <Route path="/drivers" element={<DriverManagementPage />} />
-        <Route path="/wallet" element={<AdminWalletPage />} />
-        <Route path="/settlements/daily" element={<DailySettlementPage />} />
-        <Route path="/settlements/history" element={<SettlementHistoryPage />} />
-        <Route path="/collections" element={<AdminCollectionPage />} />
-        <Route path="/gps" element={<AdminGpsDashboardPage />} />
+        <Route
+          path="/"
+          element={
+            <RequirePermission permission={PERMISSIONS.BOOKING_READ}>
+              <BookingListPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/dispatch"
+          element={
+            <RequirePermission permission={PERMISSIONS.DISPATCH_READ}>
+              <DispatchCenterPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/bookings/:id"
+          element={
+            <RequirePermission permission={PERMISSIONS.BOOKING_READ}>
+              <BookingDetailPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/drivers"
+          element={
+            <RequirePermission permission={PERMISSIONS.DRIVER_READ}>
+              <DriverManagementPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/wallet"
+          element={
+            <RequirePermission permission={PERMISSIONS.WALLET_READ}>
+              <AdminWalletPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/settlements/daily"
+          element={
+            <RequirePermission permission={PERMISSIONS.SETTLEMENT_READ}>
+              <DailySettlementPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/settlements/history"
+          element={
+            <RequirePermission permission={PERMISSIONS.SETTLEMENT_READ}>
+              <SettlementHistoryPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/collections"
+          element={
+            <RequirePermission permission={PERMISSIONS.COLLECTION_READ}>
+              <AdminCollectionPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/gps"
+          element={
+            <RequirePermission permission={PERMISSIONS.GPS_READ}>
+              <AdminGpsDashboardPage />
+            </RequirePermission>
+          }
+        />
         <Route path="/health" element={<HealthCheckPage />} />
       </Route>
 
       <Route
         element={
-          <RequireAuth role="DRIVER">
+          <RequireAuth portal="driver">
             <DriverLayout />
           </RequireAuth>
         }
       >
-        <Route path="/driver/jobs" element={<DriverJobPage />} />
-        <Route path="/driver/earnings" element={<MyEarningsPage />} />
-        <Route path="/driver/settlements" element={<DriverSettlementHistoryPage />} />
-        <Route path="/driver/collections" element={<DriverCollectionPage />} />
+        <Route
+          path="/driver/jobs"
+          element={
+            <RequirePermission permission={PERMISSIONS.DRIVER_JOBS_SELF}>
+              <DriverJobPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/driver/earnings"
+          element={
+            <RequirePermission permission={PERMISSIONS.DRIVER_WALLET_SELF}>
+              <MyEarningsPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/driver/settlements"
+          element={
+            <RequirePermission permission={PERMISSIONS.DRIVER_SETTLEMENT_SELF}>
+              <DriverSettlementHistoryPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/driver/collections"
+          element={
+            <RequirePermission permission={PERMISSIONS.DRIVER_COLLECTION_SELF}>
+              <DriverCollectionPage />
+            </RequirePermission>
+          }
+        />
       </Route>
     </Routes>
   );

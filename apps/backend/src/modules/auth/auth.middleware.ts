@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import type { UserRole } from "@prisma/client";
+import type { PermissionKey } from "../../common/permissions.js";
 import { getActiveUserById, sanitizeUser } from "./auth.service.js";
 
 export type AuthUser = ReturnType<typeof sanitizeUser>;
@@ -31,13 +31,13 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   next();
 }
 
-export function requireRole(role: UserRole) {
+export function requirePermission(permission: PermissionKey) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.authUser) {
       res.status(401).json({ error: "Not authenticated" });
       return;
     }
-    if (req.authUser.role !== role) {
+    if (!req.authUser.permissions.includes(permission)) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }

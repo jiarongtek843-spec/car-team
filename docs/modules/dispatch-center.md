@@ -8,7 +8,7 @@ Dispatch Center 是给 Dispatcher（派单员）每天用的单一工作画面�
 
 ## Dispatcher 的权限边界
 
-目前系统只有 `ADMIN`/`DRIVER` 两种登入角色（Module 2 定的），没有独立的「Dispatcher」帐号类型——新增一个角色需要改动 Module 2 的 auth 模块，不在这次的范围内。这里的做法是：Dispatch Center 页面本身**只提供 Assign/Reassign/View**，不放任何 Wallet/Settlement/Collection/Commission 的操作入口，实际权限还是走既有的 `requireRole("ADMIN")`。如果之后真的要让非 Admin 的人专职做派车，需要另外开一个 Module 处理角色/权限，这里先不做。
+Module 7（RBAC）已经加入真正的 `DISPATCHER` 角色，详见 [rbac.md](rbac.md)。Dispatch Center 页面本身**只提供 Assign/Reassign/View**，不放任何 Wallet/Settlement/Collection/Commission 的操作入口；实际权限走 `dispatch:read`（Waiting Booking / Driver List / Statistics 三支唯读 API）+ `booking:write`（Assign/Reassign 走的是 Booking 模块既有的 assign 端点，不是独立的 `dispatch:write`）。`DISPATCHER` 角色只拿到这两个 key 加上 `driver:read`/`gps:read`，没有 `wallet:*`/`settlement:*`/`collection:*`/`companySettings:*`，跟这里描述的边界完全一致。
 
 ## Waiting Booking（左边）
 
@@ -49,7 +49,7 @@ Online/Offline Driver 这两个数字刻意直接读 `Driver.isOnline` 这个旗
 `GET /api/admin/dispatch/drivers?filter=&search=`
 `GET /api/admin/dispatch/statistics`
 
-三支都是 ADMIN only、纯读取，[dispatch.service.ts](../../apps/backend/src/modules/dispatch/dispatch.service.ts) 里完全没有任何 `create`/`update`/`delete`。Assign/Reassign 走既有的 `POST /api/bookings/:id/legs/:legId/assign`，不在这个模块底下。
+三支都需要 `dispatch:read`、纯读取，[dispatch.service.ts](../../apps/backend/src/modules/dispatch/dispatch.service.ts) 里完全没有任何 `create`/`update`/`delete`。Assign/Reassign 走既有的 `POST /api/bookings/:id/legs/:legId/assign`，不在这个模块底下。
 
 ## Performance
 
@@ -59,7 +59,7 @@ Online/Offline Driver 这两个数字刻意直接读 `Driver.isOnline` 这个旗
 
 ## Frontend
 
-`/dispatch`（Admin 专用，导览列第一个项目）：`DispatchCenterPage` 顶部 6 个 Statistic 卡片，左右两个 `Card`——`WaitingBookingsPanel`（Filter Segmented + Search + 可点选列表）、`DriverListPanel`（Filter Select + Search + Driver 卡片列表，选到 Booking 后才出现 Assign 按钮）。
+`/dispatch`（需要 `dispatch:read`，导览列第一个项目）：`DispatchCenterPage` 顶部 6 个 Statistic 卡片，左右两个 `Card`——`WaitingBookingsPanel`（Filter Segmented + Search + 可点选列表）、`DriverListPanel`（Filter Select + Search + Driver 卡片列表，选到 Booking 后才出现 Assign 按钮）。
 
 ## 测试
 
@@ -70,6 +70,5 @@ Online/Offline Driver 这两个数字刻意直接读 `Driver.isOnline` 这个旗
 ## 已知限制
 
 - Priority 是「等待时间」的替代讯号，不是真正可以手动设定的栏位；如果之后要让 Dispatcher 手动调整优先级，需要在 Booking 加一个真正的 `priority` 栏位（这会需要修改 Module 1 的 schema）
-- 没有真正的「Dispatcher」角色，目前只能用 ADMIN 帐号使用这个页面
 - 没有地图，Driver 位置只用文字座标显示（跟 GPS 模块的第一版范围一致）
 - Waiting Booking 列表有 500 笔上限，超过这个数字的最旧项目不会显示；真的到这个规模时需要加分页

@@ -7,6 +7,8 @@ import { WalletTransactionTable } from "./components/WalletTransactionTable";
 import { CreateAdjustmentModal } from "./components/CreateAdjustmentModal";
 import { formatCents } from "../../lib/money";
 import type { WalletTransactionStatus } from "./types";
+import { PermissionGate } from "../auth/PermissionGate";
+import { PERMISSIONS } from "../../common/permissions";
 
 const STATUS_OPTIONS: { label: string; value: WalletTransactionStatus }[] = [
   { label: "待结算", value: "PENDING" },
@@ -39,9 +41,11 @@ export function AdminWalletPage() {
         <Typography.Title level={4} style={{ margin: 0 }}>
           Wallet
         </Typography.Title>
-        <Button type="primary" onClick={() => setAdjustmentOpen(true)}>
-          + 新增 Manual Adjustment
-        </Button>
+        <PermissionGate permission={PERMISSIONS.WALLET_WRITE}>
+          <Button type="primary" onClick={() => setAdjustmentOpen(true)}>
+            + 新增 Manual Adjustment
+          </Button>
+        </PermissionGate>
       </Space>
 
       <Card title="Unsettled Earnings by Driver" style={{ marginBottom: 16 }}>

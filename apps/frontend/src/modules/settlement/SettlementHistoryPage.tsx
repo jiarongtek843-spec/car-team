@@ -7,6 +7,8 @@ import { VoidSettlementModal } from "./components/VoidSettlementModal";
 import { CreateAdjustmentModal } from "../wallet/components/CreateAdjustmentModal";
 import { formatCents } from "../../lib/money";
 import type { Settlement, SettlementStatus } from "./types";
+import { PermissionGate } from "../auth/PermissionGate";
+import { PERMISSIONS } from "../../common/permissions";
 
 const STATUS_COLOR: Record<SettlementStatus, string> = {
   DRAFT: "default",
@@ -50,10 +52,12 @@ export function SettlementHistoryPage() {
     {
       title: "操作",
       render: (_, record) => (
-        <Space>
-          {record.status === "COMPLETED" && <a onClick={() => setVoidingId(record.id)}>Void</a>}
-          <a onClick={() => setAdjustingSettlement(record)}>Settlement Adjustment</a>
-        </Space>
+        <PermissionGate permission={PERMISSIONS.SETTLEMENT_WRITE}>
+          <Space>
+            {record.status === "COMPLETED" && <a onClick={() => setVoidingId(record.id)}>Void</a>}
+            <a onClick={() => setAdjustingSettlement(record)}>Settlement Adjustment</a>
+          </Space>
+        </PermissionGate>
       )
     }
   ];

@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { asyncHandler } from "../../common/asyncHandler.js";
 import * as driverJobsController from "./driverJobs.controller.js";
-import { requireAuth, requireRole } from "../auth/auth.middleware.js";
+import { requireAuth, requirePermission } from "../auth/auth.middleware.js";
+import { PERMISSIONS } from "../../common/permissions.js";
 
 export const driverJobsRouter = Router();
 
-driverJobsRouter.use(requireAuth, requireRole("DRIVER"));
+driverJobsRouter.use(requireAuth, requirePermission(PERMISSIONS.DRIVER_JOBS_SELF));
 
 driverJobsRouter.get("/", asyncHandler(driverJobsController.list));
 driverJobsRouter.post("/:legId/accept", asyncHandler(driverJobsController.accept));

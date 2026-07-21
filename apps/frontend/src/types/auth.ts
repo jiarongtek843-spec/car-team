@@ -1,4 +1,5 @@
-export type UserRole = "ADMIN" | "DRIVER";
+import type { PermissionKey, RoleKey } from "../common/permissions";
+
 export type DriverStatus = "ACTIVE" | "INACTIVE";
 
 export interface AuthDriver {
@@ -12,6 +13,7 @@ export interface AuthDriver {
 export interface AuthUser {
   id: number;
   username: string;
-  role: UserRole;
+  role: { key: RoleKey; name: string };
+  permissions: PermissionKey[];
   driver: AuthDriver | null;
 }

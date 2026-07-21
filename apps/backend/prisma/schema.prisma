@@ -7,11 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  ADMIN
-  DRIVER
-}
-
 enum UserStatus {
   ACTIVE
   DISABLED
@@ -93,13 +88,47 @@ enum CollectionStatus {
   VOIDED
 }
 
-// 登入帐号，Admin 和 Driver 共用同一套。Driver 的业务资料在 Driver model，
-// 两者用 userId 关联；Admin 没有对应的 Driver row。
+// RBAC（Module 7）：Role 存数据库，Permission Key 固定写在
+// apps/backend/src/common/permissions.ts。以后新增角色（例如 Finance）只需要新增一笔
+// Role 资料 + 对应的 RolePermission，不需要改任何业务逻辑代码——业务 service/controller
+// 从来不会判断 role，权限检查完全集中在 requirePermission middleware 这一层。
+model Role {
+  id          Int      @id @default(autoincrement())
+  // 机器可读、稳定不变的代号，程式码里用这个比对（例如判断是不是 Driver 角色）。
+  key         String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+// permissionKey 不是外键，对应的是 permissions.ts 里 PERMISSIONS 常数定义的字串
+// （例如 "wallet:write"）——Permission 本身不是一个需要在 DB 里维护的实体，只有
+// 「哪个角色拥有哪些 Permission」这个对应关系是资料。
+model RolePermission {
+  id            Int      @id @default(autoincrement())
+  roleId        Int      @map("role_id")
+  role          Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionKey String   @map("permission_key")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([roleId, permissionKey])
+  @@map("role_permissions")
+}
+
+// 登入帐号，四种角色共用同一套。Driver 角色的业务资料在 Driver model，
+// 两者用 userId 关联；非 Driver 角色没有对应的 Driver row。
 model User {
   id           Int        @id @default(autoincrement())
   username     String     @unique
   passwordHash String     @map("password_hash")
-  role         UserRole
+  roleId       Int        @map("role_id")
+  role         Role       @relation(fields: [roleId], references: [id])
   status       UserStatus @default(ACTIVE)
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
@@ -368,7 +397,9 @@ model AuditLog {
   id          Int       @id @default(autoincrement())
   actorUserId Int?      @map("actor_user_id")
   actorUser   User?     @relation(fields: [actorUserId], references: [id])
-  actorRole   UserRole? @map("actor_role")
+  // 存 Role.key 的字串快照（不是外键），理由跟 RolePermission.permissionKey 一样：
+  // 以后新增角色是纯资料操作，不应该反过来又要求这里做一次 schema migration。
+  actorRole   String?   @map("actor_role")
   action      String
   entityType  String    @map("entity_type")
   entityId    Int       @map("entity_id")

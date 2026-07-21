@@ -96,7 +96,7 @@ Module 4 新增了 [Collection（代收款）](./collection.md)——一本跟 W
 
 ## API
 
-- `GET /api/admin/company-settings`、`PATCH /api/admin/company-settings` — ADMIN only
+- `GET /api/admin/company-settings` — 需要 `companySettings:read`；`PATCH /api/admin/company-settings` — 需要 `companySettings:write`（Module 7 起只有 OWNER 有这两个权限，详见 [rbac.md](rbac.md)）
 - Booking/Leg 的既有 API（`POST /api/bookings`、`PATCH /api/bookings/:id`、`POST /api/bookings/:id/legs`、`PATCH /api/bookings/:id/legs/:legId`）都加了新栏位，见 [booking.md](./booking.md)
 - `GET /api/admin/wallet/transactions` — 筛选 driverId/status/日期区间
 - `GET /api/admin/wallet/unsettled-by-driver` — 各 Driver 目前未结算总额

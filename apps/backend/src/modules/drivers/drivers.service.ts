@@ -4,6 +4,7 @@ import { prisma } from "../../config/prisma.js";
 import { hashPassword } from "../../common/password.js";
 import { ConflictError, NotFoundError } from "../../common/errors.js";
 import { UNFINISHED_LEG_STATUSES } from "../bookings/bookings.status.js";
+import { ROLE_KEYS } from "../../common/permissions.js";
 
 function isUniqueConstraintError(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
@@ -48,11 +49,12 @@ export async function createDriver(input: CreateDriverInput) {
       let userId: number | undefined;
 
       if (input.username && input.password) {
+        const driverRole = await tx.role.findUniqueOrThrow({ where: { key: ROLE_KEYS.DRIVER } });
         const user = await tx.user.create({
           data: {
             username: input.username,
             passwordHash: await hashPassword(input.password),
-            role: "DRIVER"
+            roleId: driverRole.id
           }
         });
         userId = user.id;

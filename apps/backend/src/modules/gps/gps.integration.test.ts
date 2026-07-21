@@ -14,7 +14,7 @@ let systemActor: AuditActor;
 
 beforeAll(async () => {
   const admin = await prisma.user.findUniqueOrThrow({ where: { username: "admin" } });
-  systemActor = { id: admin.id, role: "ADMIN" };
+  systemActor = { id: admin.id, role: "OWNER" };
 });
 
 async function fastForwardToOnBoard(legId: number, driverId: number) {

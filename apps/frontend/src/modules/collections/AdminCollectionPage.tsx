@@ -6,6 +6,8 @@ import { CollectionTable } from "./components/CollectionTable";
 import { VoidCollectionModal } from "./components/VoidCollectionModal";
 import { PAYMENT_METHOD_LABELS, PURPOSE_LABELS, STATUS_LABELS } from "./types";
 import type { Collection, CollectionPaymentMethod, CollectionPurpose, CollectionStatus } from "./types";
+import { PermissionGate } from "../auth/PermissionGate";
+import { PERMISSIONS } from "../../common/permissions";
 
 export function AdminCollectionPage() {
   const [driverId, setDriverId] = useState<number | undefined>(undefined);
@@ -87,14 +89,16 @@ export function AdminCollectionPage() {
         showDriverColumn
         pagination={{ current: page, pageSize, total: data?.total ?? 0, onChange: setPage }}
         actions={(record: Collection) => (
-          <Space>
-            {record.status === "COLLECTED" && (
-              <a onClick={() => verifyCollection.mutate(record.id)}>Verify</a>
-            )}
-            {(record.status === "PENDING" || record.status === "COLLECTED" || record.status === "VERIFIED") && (
-              <a onClick={() => setVoidingId(record.id)}>Void</a>
-            )}
-          </Space>
+          <PermissionGate permission={PERMISSIONS.COLLECTION_WRITE}>
+            <Space>
+              {record.status === "COLLECTED" && (
+                <a onClick={() => verifyCollection.mutate(record.id)}>Verify</a>
+              )}
+              {(record.status === "PENDING" || record.status === "COLLECTED" || record.status === "VERIFIED") && (
+                <a onClick={() => setVoidingId(record.id)}>Void</a>
+              )}
+            </Space>
+          </PermissionGate>
         )}
       />
 

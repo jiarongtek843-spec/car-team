@@ -1,6 +1,7 @@
 import { prisma } from "../../config/prisma.js";
 import { verifyPassword } from "../../common/password.js";
 import { AppError } from "../../common/errors.js";
+import type { RoleKey, PermissionKey } from "../../common/permissions.js";
 
 export class AuthError extends AppError {
   constructor(message = "Invalid username or password") {
@@ -8,7 +9,10 @@ export class AuthError extends AppError {
   }
 }
 
-const userWithDriverInclude = { driver: true } as const;
+const userWithDriverInclude = {
+  driver: true,
+  role: { include: { permissions: true } }
+} as const;
 
 export type AuthenticatedUser = Awaited<ReturnType<typeof getActiveUserById>>;
 
@@ -32,11 +36,11 @@ export async function login(username: string, password: string) {
   return user;
 }
 
-function assertUserCanLogIn(user: { status: string; role: string; driver: { status: string } | null }) {
+function assertUserCanLogIn(user: { status: string; role: { key: string }; driver: { status: string } | null }) {
   if (user.status !== "ACTIVE") {
     throw new AuthError("This account has been disabled");
   }
-  if (user.role === "DRIVER" && user.driver?.status !== "ACTIVE") {
+  if (user.role.key === "DRIVER" && user.driver?.status !== "ACTIVE") {
     throw new AuthError("This driver account has been disabled");
   }
 }
@@ -68,7 +72,8 @@ export function sanitizeUser(user: NonNullable<Awaited<ReturnType<typeof getActi
   return {
     id: user.id,
     username: user.username,
-    role: user.role,
+    role: { key: user.role.key as RoleKey, name: user.role.name },
+    permissions: user.role.permissions.map((p) => p.permissionKey) as PermissionKey[],
     driver: user.driver
       ? {
           id: user.driver.id,

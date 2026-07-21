@@ -41,9 +41,13 @@ npm run test --workspace=apps/backend
 
 | 帐号 | 密码 | 角色 |
 |---|---|---|
-| `admin` | `DevPass123!` | ADMIN |
+| `admin` | `DevPass123!` | OWNER |
+| `manager01` | `DevPass123!` | MANAGER |
+| `dispatcher01` | `DevPass123!` | DISPATCHER |
 | `driver01` | `DevPass123!` | DRIVER |
 | `driver02` | `DevPass123!` | DRIVER |
+
+角色权限矩阵详见 [docs/modules/rbac.md](docs/modules/rbac.md)。
 
 ## 目录结构
 

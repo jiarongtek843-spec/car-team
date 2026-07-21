@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { Button, Card, Form, Input, Typography, Alert } from "antd";
 import { useAuth } from "./AuthContext";
 import { ApiError } from "../../api/http";
+import { homePathForUser } from "./roleHelpers";
 
 interface FormValues {
   username: string;
@@ -16,7 +17,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (!isLoading && user) {
-    return <Navigate to={user.role === "ADMIN" ? "/" : "/driver/jobs"} replace />;
+    return <Navigate to={homePathForUser(user)} replace />;
   }
 
   async function handleSubmit(values: FormValues) {
@@ -24,7 +25,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       const loggedInUser = await login(values.username, values.password);
-      navigate(loggedInUser.role === "ADMIN" ? "/" : "/driver/jobs", { replace: true });
+      navigate(homePathForUser(loggedInUser), { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "登入失败，请重试");
     } finally {
