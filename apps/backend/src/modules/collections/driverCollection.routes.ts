@@ -13,6 +13,6 @@ driverCollectionRouter.get("/", asyncHandler(driverCollectionController.list));
 driverCollectionRouter.get("/:id", asyncHandler(driverCollectionController.getOne));
 driverCollectionRouter.post(
   "/:id/proof-image",
-  collectionProofUpload.single("file"),
+  ...collectionProofUpload(),
   asyncHandler(driverCollectionController.uploadProof)
 );

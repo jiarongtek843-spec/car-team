@@ -17,11 +17,15 @@ npm run dev:backend
 npm run dev:frontend
 ```
 
-Backend 需要 `apps/backend/.env`（参考 `apps/backend/.env.example`），指向本地 PostgreSQL。
+Backend 需要 `apps/backend/.env`（参考 `apps/backend/.env.example`），指向本地 PostgreSQL；先确保该数据库存在（例如 `createdb car_team_dev`），再执行以下步骤。
 
-首次设置数据库后，跑一次种子资料（建立测试帐号）：
+首次设置数据库（或 pull 到新的 migration 后）要先跑 migration，再跑一次种子资料（建立测试帐号）：
 
 ```bash
+# 套用所有 migration，建立所有表
+npm run prisma:migrate:deploy --workspace=apps/backend
+
+# 建立测试帐号（admin / driver01 / driver02）
 npm run db:seed --workspace=apps/backend
 ```
 

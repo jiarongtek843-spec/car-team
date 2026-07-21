@@ -26,7 +26,14 @@ app.set("trust proxy", 1);
 app.use(cors({ origin: env.corsOrigin, credentials: true }));
 app.use(express.json());
 app.use(sessionMiddleware);
-app.use("/uploads", express.static(uploadsRoot));
+// nosniff：就算未来哪个副档名判断出错、存进去一个内容跟副档名对不上的档案，也不让浏览器
+// 用内容猜测（MIME sniffing）的方式把它当成 HTML/JS 执行，只信 Content-Type header 宣告的类型。
+app.use(
+  "/uploads",
+  express.static(uploadsRoot, {
+    setHeaders: (res) => res.setHeader("X-Content-Type-Options", "nosniff")
+  })
+);
 
 app.use("/api/health", healthRouter);
 app.use("/api/auth", authRouter);
