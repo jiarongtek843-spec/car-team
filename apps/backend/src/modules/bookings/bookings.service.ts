@@ -6,6 +6,13 @@ import { calculateCommissionSplit } from "./commission.js";
 import { getAllocatedSumCents, hasEarningHistory } from "./allocation.js";
 import { getCompanySettings } from "../companySettings/companySettings.service.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
+import {
+  createBookingChargeWithClient,
+  listBookingCharges,
+  type TxClient
+} from "../bookingCharges/bookingCharge.service.js";
+
+const FARE_CHARGE_TYPE_KEY = "FARE";
 
 export const bookingDetailInclude = {
   legs: {
@@ -51,7 +58,8 @@ export async function getBookingById(id: number) {
     throw new NotFoundError(`Booking ${id} not found`);
   }
 
-  return booking;
+  const charges = await listBookingCharges(id);
+  return { ...booking, charges };
 }
 
 interface CreateLegInput {
@@ -76,7 +84,7 @@ function sumAllocations(legs: CreateLegInput[]) {
   return legs.reduce((sum, leg) => sum + (leg.earningAllocationCents ?? 0), 0);
 }
 
-export async function createBooking(input: CreateBookingInput) {
+export async function createBooking(input: CreateBookingInput, actor: AuditActor | null = null) {
   const totalAmountCents = input.totalAmountCents ?? 0;
 
   let commissionType = input.commissionType;
@@ -105,37 +113,52 @@ export async function createBooking(input: CreateBookingInput) {
     );
   }
 
-  const booking = await prisma.booking.create({
-    data: {
-      girlName: input.girlName,
-      notes: input.notes,
-      totalAmountCents,
-      platformCommissionType: commissionType,
-      platformCommissionValue: commissionValue,
-      platformAmountCents,
-      driverPoolAmountCents,
-      legs: legs.length
-        ? {
-            create: legs.map((leg, index) => ({
-              sequence: index + 1,
-              pickupLocation: leg.pickupLocation,
-              dropoffLocation: leg.dropoffLocation,
-              scheduledAt: leg.scheduledAt ? new Date(leg.scheduledAt) : undefined,
-              driverId: leg.driverId,
-              notes: leg.notes,
-              earningAllocationCents: leg.earningAllocationCents
-            }))
-          }
-        : undefined
-    },
-    include: bookingDetailInclude
+  const booking = await prisma.$transaction(async (tx) => {
+    const created = await tx.booking.create({
+      data: {
+        girlName: input.girlName,
+        notes: input.notes,
+        // Customer Fare 现在由下面建立的 FARE BookingCharge 决定，这里先建成 0，
+        // 建立 Charge 时会透过 recalculateBookingTotal 写回正确值（database-schema-v2.md）。
+        totalAmountCents: 0,
+        platformCommissionType: commissionType,
+        platformCommissionValue: commissionValue,
+        platformAmountCents,
+        driverPoolAmountCents,
+        legs: legs.length
+          ? {
+              create: legs.map((leg, index) => ({
+                sequence: index + 1,
+                pickupLocation: leg.pickupLocation,
+                dropoffLocation: leg.dropoffLocation,
+                scheduledAt: leg.scheduledAt ? new Date(leg.scheduledAt) : undefined,
+                driverId: leg.driverId,
+                notes: leg.notes,
+                earningAllocationCents: leg.earningAllocationCents
+              }))
+            }
+          : undefined
+      },
+      include: bookingDetailInclude
+    });
+
+    if (totalAmountCents > 0) {
+      const fareChargeType = await tx.chargeType.findUniqueOrThrow({ where: { key: FARE_CHARGE_TYPE_KEY } });
+      await createBookingChargeWithClient(
+        tx,
+        { bookingId: created.id, chargeTypeId: fareChargeType.id, amountCents: totalAmountCents, description: "Customer Fare" },
+        actor
+      );
+    }
+
+    return created;
   });
 
   if (booking.legs.length > 0) {
     return recalculateBookingStatus(booking.id);
   }
 
-  return booking;
+  return getBookingById(booking.id);
 }
 
 interface UpdateBookingInput {
@@ -148,6 +171,53 @@ interface UpdateBookingInput {
 
 const COMMISSION_FIELDS = ["totalAmountCents", "commissionType", "commissionValue"] as const;
 
+/**
+ * 把 Customer Fare 的变化换算成一笔 BookingCharge 调整，而不是直接改 Booking row：
+ * 已经有 FARE 原始 Charge → 对它建立差额 ADDITION（可正可负）；还没有（例如原本是 0 元的
+ * Booking）→ 直接建立原始 FARE Charge。newTotalCents 跟目前净额相同就整个跳过，不留下
+ * 一笔金额是 0 的多余记录。
+ */
+async function applyTotalAmountChange(
+  tx: TxClient,
+  bookingId: number,
+  currentTotalCents: number,
+  newTotalCents: number,
+  actor: AuditActor | null
+) {
+  const delta = newTotalCents - currentTotalCents;
+  if (delta === 0) return;
+
+  const fareChargeType = await tx.chargeType.findUniqueOrThrow({ where: { key: FARE_CHARGE_TYPE_KEY } });
+  const existingFare = await tx.bookingCharge.findFirst({
+    where: { bookingId, chargeTypeId: fareChargeType.id, adjustmentType: "NONE" },
+    orderBy: { createdAt: "asc" }
+  });
+
+  if (!existingFare) {
+    if (newTotalCents <= 0) return;
+    await createBookingChargeWithClient(
+      tx,
+      { bookingId, chargeTypeId: fareChargeType.id, amountCents: newTotalCents, description: "Customer Fare" },
+      actor
+    );
+    return;
+  }
+
+  await createBookingChargeWithClient(
+    tx,
+    {
+      bookingId,
+      chargeTypeId: fareChargeType.id,
+      amountCents: delta,
+      adjustsChargeId: existingFare.id,
+      adjustmentReason: `Booking Edit: total adjusted from RM${(currentTotalCents / 100).toFixed(2)} to RM${(
+        newTotalCents / 100
+      ).toFixed(2)}`
+    },
+    actor
+  );
+}
+
 export async function updateBooking(id: number, input: UpdateBookingInput, actor: AuditActor | null) {
   const booking = await getBookingById(id);
 
@@ -159,6 +229,7 @@ export async function updateBooking(id: number, input: UpdateBookingInput, actor
   };
 
   let auditSnapshot: { before: unknown; after: unknown } | undefined;
+  let totalAmountCents = booking.totalAmountCents;
 
   if (touchesCommission) {
     if (await hasEarningHistory(id)) {
@@ -167,7 +238,7 @@ export async function updateBooking(id: number, input: UpdateBookingInput, actor
       );
     }
 
-    const totalAmountCents = input.totalAmountCents ?? booking.totalAmountCents;
+    totalAmountCents = input.totalAmountCents ?? booking.totalAmountCents;
     const commissionType = input.commissionType ?? booking.platformCommissionType;
     const commissionValue = input.commissionValue ?? booking.platformCommissionValue;
 
@@ -186,7 +257,6 @@ export async function updateBooking(id: number, input: UpdateBookingInput, actor
       );
     }
 
-    data.totalAmountCents = totalAmountCents;
     data.platformCommissionType = commissionType;
     data.platformCommissionValue = commissionValue;
     data.platformAmountCents = platformAmountCents;
@@ -210,10 +280,12 @@ export async function updateBooking(id: number, input: UpdateBookingInput, actor
     };
   }
 
-  const updated = await prisma.booking.update({
-    where: { id },
-    data,
-    include: bookingDetailInclude
+  await prisma.$transaction(async (tx) => {
+    await tx.booking.update({ where: { id }, data, include: bookingDetailInclude });
+
+    if (touchesCommission && totalAmountCents !== booking.totalAmountCents) {
+      await applyTotalAmountChange(tx, id, booking.totalAmountCents, totalAmountCents, actor);
+    }
   });
 
   if (auditSnapshot) {
@@ -227,7 +299,7 @@ export async function updateBooking(id: number, input: UpdateBookingInput, actor
     });
   }
 
-  return updated;
+  return getBookingById(id);
 }
 
 export async function cancelBooking(id: number) {
@@ -243,7 +315,10 @@ export async function cancelBooking(id: number) {
     }),
     prisma.booking.update({
       where: { id },
-      data: { status: "CANCELLED" }
+      // 取消 Booking 同步把 Financial Status 收敛成 VOIDED（financial-model-v2.md 的
+      // Booking Financial Status Flow）；Charge 本身不动——已经开出的 Fare 是历史事实，
+      // 是否需要退款是另一个尚未设计的 Future Scenario，不在这次范围内。
+      data: { status: "CANCELLED", financialStatus: "VOIDED" }
     })
   ]);
 

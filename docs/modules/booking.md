@@ -32,6 +32,19 @@ Leg
 
 > Module 3（Commission/Wallet/Settlement）上线后，原本的 `carFee`（车费，单位是 ringgit）改成 `totalAmountCents`（Booking 总价，单位是 cents），概念上是同一件事只是单位跟栏位名称改了，细节见 [commission-wallet-settlement.md](./commission-wallet-settlement.md)。
 
+> **Booking Flow Migration（Financial Model v2）上线后**：`totalAmountCents` 不再是直接写入的栏位，而是这张 Booking 底下所有有效 [Booking Charge](./booking-charge-api.md) 的加总，每次 Create/Edit 都会在同一个 Transaction 里透过 Booking Charge 重新计算、写回这个快取栏位——对呼叫方而言输入/输出的栏位完全不变，只有内部记账方式改变了，细节见下面「Booking Charge 整合」。
+
+## Booking Charge 整合（Financial Model v2）
+
+Customer Fare 现在由独立的 Append Only Ledger [Booking Charge](./booking-charge-api.md) 记录，`Booking.totalAmountCents` 只是它的快取投影：
+
+- **Create**：`totalAmountCents > 0` 时，建立 Booking 的同一个 Transaction 里会自动建立一笔 `chargeType = FARE`、`adjustmentType = NONE` 的原始 Booking Charge；省略或传 `0` 就不建立任何 Charge（维持「还没有价格」的空状态）。
+- **Edit**（`PATCH /api/bookings/:id` 带 `totalAmountCents`）：不再直接覆写 Booking row，而是换算成一笔对既有 FARE Charge 的 `ADDITION`（差额可正可负）；如果这张 Booking 原本没有任何 Charge（例如原本是 0 元），才会直接建立一笔新的原始 Charge。既有的 `hasEarningHistory` 守卫（已有 Completed Leg 或 Wallet Transaction 就不能改总价/抽成）维持不变。
+- **Cancel**：级联取消 Leg、把 `Booking.status` 设为 `CANCELLED` 之外，现在也会把 `Booking.financialStatus` 设为 `VOIDED`（对应 financial-model-v2.md 的 Booking Financial Status Flow）。Charge 本身不会被自动冲销——已经开出的 Fare 是历史事实，是否要退款是尚未设计的 Future Scenario。
+- **Detail**（`GET /api/bookings/:id`）：新增一个 `charges` 阵列栏位（沿用 Booking Charge 的 List 净额视图：每笔原始 Charge 附带 `netAmountCents`/`isVoided`），既有栏位不变。
+- **List**（`GET /api/bookings`）：不受影响，直接读取正确维护的 `totalAmountCents` 快取栏位，不逐笔重新汇总 Charge（避免分页查询的效能开销）。
+- `platformAmountCents`/`driverPoolAmountCents` 的抽成拆分计算方式不变，仍然是 `totalAmountCents` 的直接函数，Leg 的 `earningAllocationCents` 校验逻辑完全不受影响。
+
 ## Booking Status Flow
 
 Booking 的 status 不是手动设定的字段，是每次 Leg 状态变动时，由 `bookings.status.ts` 里的纯函数根据当下所有 Leg 重新推算出来，并写回 DB（方便列表查询/筛选，不用每次都 join 计算）。

@@ -32,6 +32,7 @@ beforeEach(() => {
 afterEach(async () => {
   await prisma.driverLocation.deleteMany({ where: { driverId: { in: driverIds } } });
   await prisma.walletTransaction.deleteMany({ where: { driverId: { in: driverIds } } });
+  await prisma.bookingCharge.deleteMany({ where: { bookingId: { in: bookingIds } } });
   await prisma.leg.deleteMany({ where: { bookingId: { in: bookingIds } } });
   await prisma.booking.deleteMany({ where: { id: { in: bookingIds } } });
   await prisma.driver.deleteMany({ where: { id: { in: driverIds } } });

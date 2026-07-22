@@ -3,10 +3,11 @@ import { prisma } from "../../config/prisma.js";
 import * as bookingsService from "../bookings/bookings.service.js";
 
 /**
- * Module 9（Financial Model v2）的 Database Integration Test。这次只到 Schema 层——
- * 还没有 booking_charges/trip_expenses 的 service/controller/API，所以这里直接用
- * Prisma Client 操作新表，验证的是 migration 建出来的约束（CHECK/Partial Unique Index/
- * FK 删除策略）本身有没有正确生效，不是业务逻辑（业务逻辑留到 API 阶段）。
+ * Module 9（Financial Model v2）的 Database Integration Test。建立时只到 Schema 层——
+ * booking_charges 的 service/controller/API（Module 10）跟 Booking Flow Migration
+ * 都是后来才补上的，这里直接用 Prisma Client 操作新表，验证的是 migration 建出来的约束
+ * （CHECK/Partial Unique Index/FK 删除策略）本身有没有正确生效，不是业务逻辑（业务逻辑
+ * 测试在 bookingCharge.integration.test.ts）。trip_expenses 目前还没有 service/API。
  */
 
 let adminId: number;
@@ -216,7 +217,9 @@ describe("booking_charges Append Only 约束（Task 12 / financial-model-v2.md �
   });
 
   it("SUM(amountCents) 正确反映原始 Charge + ADDITION + REVERSAL 的净额", async () => {
-    const booking = await createTestBooking();
+    // 用 totalAmountCents: 0 建立 Booking，避免 createBooking（Booking Flow Migration 后）
+    // 自动建立的 FARE Charge 混进这里手动建立、只想测试 SUM 算法本身的 Charge 家族。
+    const booking = await createTestBooking(0);
     bookingIds.push(booking.id);
 
     const original = await prisma.bookingCharge.create({

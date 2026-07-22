@@ -54,7 +54,7 @@ export async function getOne(req: Request, res: Response) {
 
 export async function create(req: Request, res: Response) {
   const input = createBookingSchema.parse(req.body);
-  const booking = await bookingsService.createBooking(input);
+  const booking = await bookingsService.createBooking(input, actorFromRequest(req));
   res.status(201).json(booking);
 }
 
