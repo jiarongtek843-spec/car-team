@@ -66,6 +66,7 @@ describe("Wallet + Settlement (Module 3 scenarios)", () => {
 
     const booking = await bookingsService.createBooking({
       girlName: "Scenario1",
+      financialVersion: "V1",
       totalAmountCents: 6000,
       commissionType: "PERCENTAGE",
       commissionValue: 20,
@@ -105,6 +106,7 @@ describe("Wallet + Settlement (Module 3 scenarios)", () => {
 
     const booking = await bookingsService.createBooking({
       girlName: "Scenario2",
+      financialVersion: "V1",
       totalAmountCents: 6000,
       commissionType: "PERCENTAGE",
       commissionValue: 20,
@@ -134,6 +136,7 @@ describe("Wallet + Settlement (Module 3 scenarios)", () => {
 
     const booking = await bookingsService.createBooking({
       girlName: "Scenario3",
+      financialVersion: "V1",
       totalAmountCents: 6000,
       legs: [{ pickupLocation: "A", dropoffLocation: "B", earningAllocationCents: 2400 }]
     });
@@ -155,6 +158,7 @@ describe("Wallet + Settlement (Module 3 scenarios)", () => {
 
     const booking = await bookingsService.createBooking({
       girlName: "Scenario4",
+      financialVersion: "V1",
       totalAmountCents: 6000,
       legs: [
         { pickupLocation: "A", dropoffLocation: "B", earningAllocationCents: 2400 },
@@ -178,6 +182,7 @@ describe("Wallet + Settlement (Module 3 scenarios)", () => {
 
     const booking = await bookingsService.createBooking({
       girlName: "Scenario5",
+      financialVersion: "V1",
       totalAmountCents: 6000,
       legs: [{ pickupLocation: "A", dropoffLocation: "B", earningAllocationCents: 2400 }]
     });
@@ -205,6 +210,7 @@ describe("Wallet + Settlement (Module 3 scenarios)", () => {
 
     const booking = await bookingsService.createBooking({
       girlName: "Scenario6",
+      financialVersion: "V1",
       totalAmountCents: 6000,
       legs: [{ pickupLocation: "A", dropoffLocation: "B", earningAllocationCents: 2400 }]
     });
@@ -232,6 +238,7 @@ describe("Wallet + Settlement (Module 3 scenarios)", () => {
   it("Scenario 7: total leg allocation cannot exceed the driver pool", async () => {
     const booking = await bookingsService.createBooking({
       girlName: "Scenario7",
+      financialVersion: "V1",
       totalAmountCents: 6000,
       commissionType: "PERCENTAGE",
       commissionValue: 20 // driver pool = 4800
@@ -251,6 +258,7 @@ describe("Wallet + Settlement (Module 3 scenarios)", () => {
 
     const booking = await bookingsService.createBooking({
       girlName: "Scenario8",
+      financialVersion: "V1",
       totalAmountCents: 6000,
       legs: [{ pickupLocation: "A", dropoffLocation: "B", earningAllocationCents: 2400 }]
     });
@@ -312,6 +320,7 @@ describe("Financial hardening scenarios", () => {
 
     const booking = await bookingsService.createBooking({
       girlName: "HardeningVoid",
+      financialVersion: "V1",
       totalAmountCents: 6000,
       legs: [{ pickupLocation: "A", dropoffLocation: "B", earningAllocationCents: 2400 }]
     });
@@ -336,6 +345,7 @@ describe("Financial hardening scenarios", () => {
 
     const booking = await bookingsService.createBooking({
       girlName: "HardeningReversal",
+      financialVersion: "V1",
       totalAmountCents: 6000,
       legs: [{ pickupLocation: "A", dropoffLocation: "B", earningAllocationCents: 2400 }]
     });
@@ -438,6 +448,7 @@ describe("Financial hardening scenarios", () => {
 
     const booking = await bookingsService.createBooking({
       girlName: "HardeningLocked",
+      financialVersion: "V1",
       totalAmountCents: 6000,
       legs: [{ pickupLocation: "A", dropoffLocation: "B", earningAllocationCents: 2400 }]
     });

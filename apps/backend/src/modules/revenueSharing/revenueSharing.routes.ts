@@ -28,3 +28,22 @@ revenueSharingRouter.post(
   requirePermission(PERMISSIONS.REVENUE_SHARING_FINALIZE),
   asyncHandler(revenueSharingController.finalize)
 );
+
+// Module 12（Wallet Migration）：没有独立的 Issue Wallet 端点——POST /:bookingId/finalize
+// 现在会在同一个 Transaction 里自动发放 Wallet（V2 Booking）。这 3 个 Wallet 相关的
+// 查询沿用既有的 revenueSharing:read（Owner/Manager/Dispatcher 都能看）。
+revenueSharingRouter.get(
+  "/:bookingId/wallet",
+  requirePermission(PERMISSIONS.REVENUE_SHARING_READ),
+  asyncHandler(revenueSharingController.walletForBooking)
+);
+revenueSharingRouter.get(
+  "/wallet/history",
+  requirePermission(PERMISSIONS.REVENUE_SHARING_READ),
+  asyncHandler(revenueSharingController.walletHistory)
+);
+revenueSharingRouter.get(
+  "/wallet/by-driver/:driverId",
+  requirePermission(PERMISSIONS.REVENUE_SHARING_READ),
+  asyncHandler(revenueSharingController.driverWallet)
+);

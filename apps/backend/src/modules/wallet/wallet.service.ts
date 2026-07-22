@@ -59,6 +59,66 @@ export async function createLegEarning(
   return transaction;
 }
 
+export interface RevenueSharePayoutAllocation {
+  driverId: number;
+  legId: number | null;
+  amountCents: number;
+}
+
+/**
+ * Revenue Sharing Issue Wallet 时呼叫（Module 12，Financial V2 专用）。跟 createLegEarning
+ * 不同：这里的 amountCents 已经是按 Leg 分配比例算好的最终金额（由呼叫方——
+ * revenueSharing.service.ts 计算），这支函数只负责逐笔写入、写 Audit Log，不做任何计算。
+ * `@@unique([legId, transactionType])` 天然防止同一个 Leg 被重复发放（即使呼叫方本身的
+ * 「Snapshot 是否已发放」检查失效，DB 这一层还是会挡下来）。
+ */
+export async function createRevenueSharePayouts(
+  client: TxClient,
+  input: { bookingId: number; revenueSnapshotId: number; allocations: RevenueSharePayoutAllocation[] },
+  actor: AuditActor
+) {
+  const transactions = [];
+
+  for (const allocation of input.allocations) {
+    const transaction = await client.walletTransaction.create({
+      data: {
+        driverId: allocation.driverId,
+        bookingId: input.bookingId,
+        legId: allocation.legId,
+        revenueSnapshotId: input.revenueSnapshotId,
+        transactionType: "REVENUE_SHARE_PAYOUT",
+        source: "BOOKING_REVENUE",
+        amountCents: allocation.amountCents,
+        description: `Revenue Sharing payout for booking #${input.bookingId}`,
+        status: "PENDING",
+        effectiveDate: startOfDay(new Date()),
+        createdBy: actor.id
+      }
+    });
+
+    await writeAuditLog(
+      {
+        actor,
+        action: "REVENUE_SHARE_PAYOUT_CREATED",
+        entityType: "WalletTransaction",
+        entityId: transaction.id,
+        afterData: {
+          driverId: allocation.driverId,
+          legId: allocation.legId,
+          bookingId: input.bookingId,
+          revenueSnapshotId: input.revenueSnapshotId,
+          amountCents: transaction.amountCents
+        }
+      },
+      client
+    );
+
+    transactions.push(transaction);
+  }
+
+  return transactions;
+}
+
 export async function getDriverWalletSummary(driverId: number) {
   const today = startOfDay(new Date());
 

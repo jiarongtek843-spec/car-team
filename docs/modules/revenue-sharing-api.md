@@ -147,6 +147,8 @@ Company Settings 更新时也有一条相关的 Validation（写在 [company-set
 
 三个新增的 Permission Key：`revenueSharing:read`、`revenueSharing:preview`、`revenueSharing:finalize`（[migration](../../apps/backend/prisma/migrations/20260808000000_revenue_sharing_permissions/migration.sql) 已经把对应的 `role_permissions` 资料灌好）。Dispatcher 在这个 Module 是纯 View Only——连 Preview 都不给，跟 Booking Charge（Dispatcher 能 Create/View）的授权哲学不一样，因为 Revenue Sharing 属于「营运结果」而不是「营运操作」。
 
+> **Module 12 更新**：上表的「MANAGER Finalize = ✅」只反映 RBAC 层的静态权限（还有没有这个资格）。Finalize 现在同时代表「自动发放 Wallet」，因此实际能不能执行还多了一层由 `CompanySettings.allowManagerFinalizeRevenueSharing` 控制的运行时开关（第一版默认关闭，等同只有 OWNER），细节见 [wallet-migration.md](./wallet-migration.md#permission)。
+
 ## Error Code
 
 | HTTP Status | 情境 |
@@ -171,7 +173,7 @@ Company Settings 更新时也有一条相关的 Validation（写在 [company-set
 
 ## 已知限制
 
-- **Wallet/Settlement 还没有整合**——Finalize 算出来的 `companyRevenueCents`/`dispatcherCommissionCents`/`driverPoolCents` 目前只写进 Snapshot，不会自动产生任何 `WalletTransaction`（Driver 实际能不能领到这笔钱、Dispatcher Commission 怎么发，都还是走既有的 Leg 完成 → `createLegEarning` 那一套旧机制，两者暂时并存、互不影响）。这是刻意的——用户明确要求这次不要开始 Wallet Migration。
+- **Wallet 已经在 Module 12（Wallet Migration）整合，而且是自动的**——Finalize 成功的同一个 Transaction 里就会把 `driverPoolCents` 按 Leg 分配比例发放成 `WalletTransaction`（Financial V2 Booking），不需要额外的手动步骤，细节见 [wallet-migration.md](./wallet-migration.md)。`companyRevenueCents`/`dispatcherCommissionCents` 仍然只停留在 Snapshot——这个系统没有 Company/Dispatcher Wallet 的概念。**Settlement 还没有整合**，沿用既有的日结机制。「谁能执行 Finalize」也在 Module 12 变成可配置（`CompanySettings.allowManagerFinalizeRevenueSharing`），不再单纯由这里的 RBAC 权限表决定——细节同样见 wallet-migration.md。
 - **Finalize 不检查 Booking 的营运状态（`status`）**——目前是纯手动触发的动作，不要求 Leg 全部 COMPLETED 才能 Finalize，也不会因为 Leg 完成而自动触发 Finalize。`financial-model-v2.md` 里「FINALIZED 对应营运面 status 变成 COMPLETED」的完整状态机联动，留给未来的自动化。
 - **没有「Re-open」或「重新计算」流程**——Snapshot 一旦建立，这个 Module 没有提供任何方式去撤销或更新它；如果 Finalize 之后发现 Revenue Rule 设错了，只能透过之后的 Adjustment Charge + 未来某个「补充分润」的新流程处理（本次不设计）。
 - **History 列表没有日期区间/角色相关的筛选**，只支援分页——报表需求如果需要更细的筛选条件，留给未来的 Reporting 需求驱动。

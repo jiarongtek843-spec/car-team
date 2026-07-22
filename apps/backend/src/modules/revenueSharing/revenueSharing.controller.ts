@@ -32,3 +32,21 @@ export async function history(req: Request, res: Response) {
   const result = await revenueSharingService.listRevenueHistory(query);
   res.json(result);
 }
+
+export async function walletForBooking(req: Request, res: Response) {
+  const bookingId = parseIdParam(req.params.bookingId);
+  const result = await revenueSharingService.getWalletForBooking(bookingId);
+  res.json(result);
+}
+
+export async function driverWallet(req: Request, res: Response) {
+  const driverId = parseIdParam(req.params.driverId);
+  const result = await revenueSharingService.getDriverRevenueShareWallet(driverId);
+  res.json(result);
+}
+
+export async function walletHistory(req: Request, res: Response) {
+  const query = historyQuerySchema.parse(req.query);
+  const result = await revenueSharingService.listWalletHistory(query);
+  res.json(result);
+}

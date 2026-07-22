@@ -1,4 +1,4 @@
-import type { BookingStatus, CommissionType, Prisma } from "@prisma/client";
+import type { BookingStatus, CommissionType, FinancialVersion, Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { deriveBookingStatus } from "./bookings.status.js";
@@ -78,6 +78,12 @@ interface CreateBookingInput {
   commissionType?: CommissionType;
   commissionValue?: number;
   legs?: CreateLegInput[];
+  /**
+   * 内部/测试专用，刻意不暴露在 bookings.controller.ts 的 zod schema——Financial Version
+   * 的 Cut-over 是由 migration 的 DB 栏位默认值自动决定（省略就是 V2），不是使用者能选的
+   * 参数。只有需要模拟「Migration 之前建立的旧 Booking」的测试会用到这个欄位。
+   */
+  financialVersion?: FinancialVersion;
 }
 
 function sumAllocations(legs: CreateLegInput[]) {
@@ -125,6 +131,7 @@ export async function createBooking(input: CreateBookingInput, actor: AuditActor
         platformCommissionValue: commissionValue,
         platformAmountCents,
         driverPoolAmountCents,
+        financialVersion: input.financialVersion,
         legs: legs.length
           ? {
               create: legs.map((leg, index) => ({

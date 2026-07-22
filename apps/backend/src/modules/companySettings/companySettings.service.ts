@@ -32,7 +32,8 @@ export async function getCompanySettings() {
       companyCommissionType: "PERCENTAGE",
       companyCommissionValue: 15,
       dispatcherCommissionType: "PERCENTAGE",
-      dispatcherCommissionValue: 0
+      dispatcherCommissionValue: 0,
+      allowManagerFinalizeRevenueSharing: false
     }
   });
 }
@@ -56,6 +57,7 @@ export interface UpdateCompanySettingsInput {
   companyCommissionValue?: number;
   dispatcherCommissionType?: CommissionType;
   dispatcherCommissionValue?: number;
+  allowManagerFinalizeRevenueSharing?: boolean;
 }
 
 /**

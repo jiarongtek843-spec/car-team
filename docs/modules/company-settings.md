@@ -27,8 +27,9 @@
 | Collection | `maxUploadFileSizeMb` | Int | `5` |
 | Revenue Sharing（Module 11） | `companyCommissionType` / `companyCommissionValue` | enum / Int | `PERCENTAGE` / `15` |
 | Revenue Sharing（Module 11） | `dispatcherCommissionType` / `dispatcherCommissionValue` | enum / Int | `PERCENTAGE` / `0` |
+| Wallet Migration（Module 12） | `allowManagerFinalizeRevenueSharing` | Boolean | `false` |
 
-Revenue Sharing 的两组栏位是 [Revenue Sharing API](./revenue-sharing-api.md) 用的 Revenue Rule 配置——只对参与分润的 Booking Charge 生效，Driver Pool 没有独立栏位（定义上是余额），细节见该文件。
+Revenue Sharing 的两组栏位是 [Revenue Sharing API](./revenue-sharing-api.md) 用的 Revenue Rule 配置——只对参与分润的 Booking Charge 生效，Driver Pool 没有独立栏位（定义上是余额），细节见该文件。`allowManagerFinalizeRevenueSharing` 决定 MANAGER 能不能执行 Revenue Sharing Finalize（现在会自动发放 Wallet）——OWNER 永远可以，不受这个栏位影响；默认关闭，第一版等同只有 OWNER，细节见 [wallet-migration.md](./wallet-migration.md#permission)。
 
 ## Migration
 
@@ -39,7 +40,7 @@ Revenue Sharing 的两组栏位是 [Revenue Sharing API](./revenue-sharing-api.m
 
 [`20260807000000_revenue_sharing_rule`](../../apps/backend/prisma/migrations/20260807000000_revenue_sharing_rule/migration.sql) 之后又补上 4 个 Revenue Sharing 栏位，做法跟上面完全一样（`ADD COLUMN` 带 `DEFAULT`，不需要额外 backfill）。
 
-已在本地空数据库（14 个 migration 全部套用）跟已有资料的 dev 数据库两种情境测过，都成功。
+已在本地空数据库（17 个 migration 全部套用）跟已有资料的 dev 数据库两种情境测过，都成功。
 
 ## Backend API
 

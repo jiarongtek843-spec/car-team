@@ -23,7 +23,7 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(owner).toContain(PERMISSIONS.REVENUE_SHARING_FINALIZE);
   });
 
-  it("MANAGER has all day-to-day operations including Booking Charge Void and Revenue Sharing Finalize, can read but not write Company Settings", () => {
+  it("MANAGER has all day-to-day operations including Booking Charge Void and Revenue Sharing Finalize (RBAC-level), can read but not write Company Settings", () => {
     const manager = DEFAULT_ROLE_PERMISSIONS.MANAGER;
     expect(manager).toContain(PERMISSIONS.BOOKING_WRITE);
     expect(manager).toContain(PERMISSIONS.DRIVER_WRITE);
@@ -36,6 +36,9 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(manager).toContain(PERMISSIONS.BOOKING_CHARGE_VOID);
     expect(manager).toContain(PERMISSIONS.REVENUE_SHARING_READ);
     expect(manager).toContain(PERMISSIONS.REVENUE_SHARING_PREVIEW);
+    // RBAC 层拥有 revenueSharing:finalize 只代表「有资格」，实际能不能 Finalize（现在会
+    // 自动发放 Wallet）还要看 CompanySettings.allowManagerFinalizeRevenueSharing——
+    // 那个开关不是 permissions.ts 管的事，见 revenueSharing.service.ts 的 assertCanFinalize。
     expect(manager).toContain(PERMISSIONS.REVENUE_SHARING_FINALIZE);
     expect(manager).not.toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
   });

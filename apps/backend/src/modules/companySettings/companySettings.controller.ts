@@ -34,7 +34,11 @@ const updateSchema = z.object({
   companyCommissionType: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]).optional(),
   companyCommissionValue: z.coerce.number().int().nonnegative().optional(),
   dispatcherCommissionType: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]).optional(),
-  dispatcherCommissionValue: z.coerce.number().int().nonnegative().optional()
+  dispatcherCommissionValue: z.coerce.number().int().nonnegative().optional(),
+
+  // Wallet Migration（Module 12）：谁能执行 Revenue Sharing Finalize（现在会自动发放
+  // Wallet）——OWNER 永远可以，这个栏位只决定 MANAGER 要不要一起放行。
+  allowManagerFinalizeRevenueSharing: z.boolean().optional()
 });
 
 export async function get(_req: Request, res: Response) {

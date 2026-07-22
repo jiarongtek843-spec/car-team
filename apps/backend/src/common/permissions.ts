@@ -44,6 +44,12 @@ export const PERMISSIONS = {
   // 停在 Read（连 Preview 都不给，避免看起来像能操作）。
   REVENUE_SHARING_READ: "revenueSharing:read",
   REVENUE_SHARING_PREVIEW: "revenueSharing:preview",
+  // Module 12（Wallet Migration）起，Finalize 会在同一个 Transaction 里自动发放 Wallet
+  // （不再有独立的 Issue Wallet 动作/Permission）。RBAC 层只负责「有没有 Finalize 的资格」
+  // 这个粗粒度判断（OWNER/MANAGER 都有）；「MANAGER 现在实际上能不能 Finalize」是更细一层
+  // 的判断，交给 CompanySettings.allowManagerFinalizeRevenueSharing 这个运行时开关决定
+  // （revenueSharing.service.ts 的 assertCanFinalize），不写死在这里——这样以后要不要放开
+  // 给 MANAGER，OWNER 自己在 Company Settings 切换就好，不需要改这个档案或重新部署。
   REVENUE_SHARING_FINALIZE: "revenueSharing:finalize",
   // Driver 自助：只能操作自己的资料，不是「管理其他 Driver」（那是 DRIVER_READ/WRITE）。
   DRIVER_JOBS_SELF: "driverJobs:self",

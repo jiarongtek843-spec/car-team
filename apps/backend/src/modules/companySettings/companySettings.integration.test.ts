@@ -32,7 +32,8 @@ afterEach(async () => {
       companyCommissionType: originalSettings.companyCommissionType,
       companyCommissionValue: originalSettings.companyCommissionValue,
       dispatcherCommissionType: originalSettings.dispatcherCommissionType,
-      dispatcherCommissionValue: originalSettings.dispatcherCommissionValue
+      dispatcherCommissionValue: originalSettings.dispatcherCommissionValue,
+      allowManagerFinalizeRevenueSharing: originalSettings.allowManagerFinalizeRevenueSharing
     }
   });
 });
@@ -150,5 +151,15 @@ describe("CompanySettings (Module 8)", () => {
 
     expect(updated.companyCommissionValue).toBe(90);
     expect(updated.dispatcherCommissionValue).toBe(999999);
+  });
+
+  it("allowManagerFinalizeRevenueSharing defaults to false and can be toggled", async () => {
+    expect(originalSettings.allowManagerFinalizeRevenueSharing).toBe(false);
+
+    const enabled = await companySettingsService.updateCompanySettings({ allowManagerFinalizeRevenueSharing: true });
+    expect(enabled.allowManagerFinalizeRevenueSharing).toBe(true);
+
+    const disabled = await companySettingsService.updateCompanySettings({ allowManagerFinalizeRevenueSharing: false });
+    expect(disabled.allowManagerFinalizeRevenueSharing).toBe(false);
   });
 });

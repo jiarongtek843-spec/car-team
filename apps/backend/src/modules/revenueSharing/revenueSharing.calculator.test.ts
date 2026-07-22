@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateRevenueSharing, computeComponentCents } from "./revenueSharing.calculator.js";
+import { allocateDriverPool, calculateRevenueSharing, computeComponentCents } from "./revenueSharing.calculator.js";
 
 const PERCENTAGE_RULE = {
   companyCommissionType: "PERCENTAGE" as const,
@@ -124,5 +124,72 @@ describe("calculateRevenueSharing", () => {
     );
 
     expect(result.driverPoolCents).toBe(0);
+  });
+});
+
+describe("allocateDriverPool", () => {
+  it("单一 Leg 拿走全部 driverPoolCents", () => {
+    const allocations = allocateDriverPool(8500, [{ legId: 1, driverId: 10, earningAllocationCents: 6000 }]);
+    expect(allocations).toEqual([{ legId: 1, driverId: 10, amountCents: 8500 }]);
+  });
+
+  it("两个权重相等的 Leg 平分", () => {
+    const allocations = allocateDriverPool(10000, [
+      { legId: 1, driverId: 10, earningAllocationCents: 2400 },
+      { legId: 2, driverId: 20, earningAllocationCents: 2400 }
+    ]);
+    expect(allocations).toEqual([
+      { legId: 1, driverId: 10, amountCents: 5000 },
+      { legId: 2, driverId: 20, amountCents: 5000 }
+    ]);
+  });
+
+  it("权重不同时按比例分配（1:3）", () => {
+    const allocations = allocateDriverPool(8000, [
+      { legId: 1, driverId: 10, earningAllocationCents: 1000 },
+      { legId: 2, driverId: 20, earningAllocationCents: 3000 }
+    ]);
+    expect(allocations).toEqual([
+      { legId: 1, driverId: 10, amountCents: 2000 },
+      { legId: 2, driverId: 20, amountCents: 6000 }
+    ]);
+  });
+
+  it("多笔 Leg 四舍五入后的余数全部算给最后一笔，总和精确等于 driverPoolCents", () => {
+    // 10000 分给权重 1:1:1 三笔，333.33...一笔算不尽——前两笔四舍五入各 3333，
+    // 最后一笔吃剩下的 3334，总和仍然精确是 10000。
+    const allocations = allocateDriverPool(10000, [
+      { legId: 1, driverId: 10, earningAllocationCents: 1000 },
+      { legId: 2, driverId: 20, earningAllocationCents: 1000 },
+      { legId: 3, driverId: 30, earningAllocationCents: 1000 }
+    ]);
+    const sum = allocations.reduce((s, a) => s + a.amountCents, 0);
+    expect(sum).toBe(10000);
+    expect(allocations[0].amountCents).toBe(3333);
+    expect(allocations[1].amountCents).toBe(3333);
+    expect(allocations[2].amountCents).toBe(3334);
+  });
+
+  it("没有任何 Leg 时回传空阵列", () => {
+    expect(allocateDriverPool(10000, [])).toEqual([]);
+  });
+
+  it("所有 Leg 的 earningAllocationCents 都是 0 时回传空阵列（没有权重可以分配）", () => {
+    const allocations = allocateDriverPool(10000, [
+      { legId: 1, driverId: 10, earningAllocationCents: 0 },
+      { legId: 2, driverId: 20, earningAllocationCents: 0 }
+    ]);
+    expect(allocations).toEqual([]);
+  });
+
+  it("driverPoolCents 是 0 时每笔都分到 0，但仍然回传每个 Leg（不是空阵列）", () => {
+    const allocations = allocateDriverPool(0, [
+      { legId: 1, driverId: 10, earningAllocationCents: 1000 },
+      { legId: 2, driverId: 20, earningAllocationCents: 1000 }
+    ]);
+    expect(allocations).toEqual([
+      { legId: 1, driverId: 10, amountCents: 0 },
+      { legId: 2, driverId: 20, amountCents: 0 }
+    ]);
   });
 });

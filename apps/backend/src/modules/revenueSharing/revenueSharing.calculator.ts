@@ -143,3 +143,42 @@ export function calculateRevenueSharing(
     ]
   };
 }
+
+/** 一笔 Leg 的分润权重输入——只带 allocateDriverPool 需要的栏位。 */
+export interface LegAllocationInput {
+  legId: number;
+  driverId: number;
+  earningAllocationCents: number;
+}
+
+export interface DriverPoolAllocation {
+  legId: number;
+  driverId: number;
+  amountCents: number;
+}
+
+/**
+ * Module 12（Wallet Migration）：把 Revenue Sharing Snapshot 的 driverPoolCents 按每个
+ * （未取消、已指派 Driver 的）Leg 的 earningAllocationCents 比例分配——这是 Financial V2
+ * Booking「Revenue Allocation」的具体定义：沿用既有的 Leg 分配比例机制，只是套用在新的
+ * Revenue Sharing 总额上，而不是旧的 driverPoolAmountCents。用统一的「四舍五入到最近的
+ * cent」规则算前 n-1 笔，最后一笔吃掉四舍五入后的余数，保证总和永远精确等于
+ * driverPoolCents（Validation：所有金额必须一致）。没有任何合格 Leg（totalWeight <= 0）
+ * 时回传空阵列——没有 Driver 可以分，不是错误。
+ */
+export function allocateDriverPool(driverPoolCents: number, legs: LegAllocationInput[]): DriverPoolAllocation[] {
+  const totalWeight = legs.reduce((sum, leg) => sum + leg.earningAllocationCents, 0);
+  if (totalWeight <= 0 || legs.length === 0) {
+    return [];
+  }
+
+  let distributed = 0;
+  return legs.map((leg, index) => {
+    const isLast = index === legs.length - 1;
+    const amountCents = isLast
+      ? driverPoolCents - distributed
+      : roundToNearestCent((driverPoolCents * leg.earningAllocationCents) / totalWeight);
+    distributed += amountCents;
+    return { legId: leg.legId, driverId: leg.driverId, amountCents };
+  });
+}
