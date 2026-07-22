@@ -17,6 +17,7 @@ import { driverCollectionRouter } from "./modules/collections/driverCollection.r
 import { gpsRouter } from "./modules/gps/gps.routes.js";
 import { driverPresenceRouter } from "./modules/gps/driverPresence.routes.js";
 import { dispatchRouter } from "./modules/dispatch/dispatch.routes.js";
+import { bookingChargeRouter } from "./modules/bookingCharges/bookingCharge.routes.js";
 import { errorHandler } from "./common/errorHandler.js";
 import { uploadsRoot } from "./common/upload.js";
 
@@ -50,5 +51,6 @@ app.use("/api/driver/collections", driverCollectionRouter);
 app.use("/api/admin/gps", gpsRouter);
 app.use("/api/driver/presence", driverPresenceRouter);
 app.use("/api/admin/dispatch", dispatchRouter);
+app.use("/api/admin/booking-charges", bookingChargeRouter);
 
 app.use(errorHandler);

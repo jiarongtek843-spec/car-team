@@ -33,6 +33,12 @@ export const PERMISSIONS = {
   COLLECTION_WRITE: "collection:write",
   COMPANY_SETTINGS_READ: "companySettings:read",
   COMPANY_SETTINGS_WRITE: "companySettings:write",
+  // Module 9（Financial Model v2）：Booking Charge 独立于既有的 booking:read/write之外，
+  // 因为 Dispatcher 这次要能 Create/View 但不能 Void——细粒度跟 booking:write 不一样，
+  // 不能沿用既有的 key。
+  BOOKING_CHARGE_READ: "bookingCharge:read",
+  BOOKING_CHARGE_WRITE: "bookingCharge:write",
+  BOOKING_CHARGE_VOID: "bookingCharge:void",
   // Driver 自助：只能操作自己的资料，不是「管理其他 Driver」（那是 DRIVER_READ/WRITE）。
   DRIVER_JOBS_SELF: "driverJobs:self",
   DRIVER_WALLET_SELF: "driverWallet:self",
@@ -57,7 +63,10 @@ const ADMIN_SIDE_PERMISSIONS: PermissionKey[] = [
   PERMISSIONS.COLLECTION_READ,
   PERMISSIONS.COLLECTION_WRITE,
   PERMISSIONS.COMPANY_SETTINGS_READ,
-  PERMISSIONS.COMPANY_SETTINGS_WRITE
+  PERMISSIONS.COMPANY_SETTINGS_WRITE,
+  PERMISSIONS.BOOKING_CHARGE_READ,
+  PERMISSIONS.BOOKING_CHARGE_WRITE,
+  PERMISSIONS.BOOKING_CHARGE_VOID
 ];
 
 /**
@@ -75,7 +84,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]> = {
     PERMISSIONS.DRIVER_READ,
     PERMISSIONS.DISPATCH_READ,
     PERMISSIONS.GPS_READ,
-    PERMISSIONS.COMPANY_SETTINGS_READ
+    PERMISSIONS.COMPANY_SETTINGS_READ,
+    // Dispatcher 可以 Create/View Booking Charge（例如帮客户加一笔 Extra Stop），
+    // 但不能 Void——冲销需要 Manager 以上的角色才能做。
+    PERMISSIONS.BOOKING_CHARGE_READ,
+    PERMISSIONS.BOOKING_CHARGE_WRITE
   ],
   DRIVER: [
     PERMISSIONS.DRIVER_JOBS_SELF,

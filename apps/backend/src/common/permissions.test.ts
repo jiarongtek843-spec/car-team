@@ -8,13 +8,16 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     );
   });
 
-  it("OWNER has every admin-side permission, including Company Settings", () => {
+  it("OWNER has every admin-side permission, including Company Settings and Booking Charge Void", () => {
     const owner = DEFAULT_ROLE_PERMISSIONS.OWNER;
     expect(owner).toContain(PERMISSIONS.COMPANY_SETTINGS_READ);
     expect(owner).toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
     expect(owner).toContain(PERMISSIONS.WALLET_WRITE);
     expect(owner).toContain(PERMISSIONS.SETTLEMENT_WRITE);
     expect(owner).toContain(PERMISSIONS.COLLECTION_WRITE);
+    expect(owner).toContain(PERMISSIONS.BOOKING_CHARGE_READ);
+    expect(owner).toContain(PERMISSIONS.BOOKING_CHARGE_WRITE);
+    expect(owner).toContain(PERMISSIONS.BOOKING_CHARGE_VOID);
   });
 
   it("MANAGER has all day-to-day operations including Booking Charge Void, can read but not write Company Settings", () => {
@@ -25,10 +28,13 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(manager).toContain(PERMISSIONS.SETTLEMENT_WRITE);
     expect(manager).toContain(PERMISSIONS.COLLECTION_WRITE);
     expect(manager).toContain(PERMISSIONS.COMPANY_SETTINGS_READ);
+    expect(manager).toContain(PERMISSIONS.BOOKING_CHARGE_READ);
+    expect(manager).toContain(PERMISSIONS.BOOKING_CHARGE_WRITE);
+    expect(manager).toContain(PERMISSIONS.BOOKING_CHARGE_VOID);
     expect(manager).not.toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
   });
 
-  it("DISPATCHER can use Booking/Dispatch and view Driver/GPS, but has zero financial access", () => {
+  it("DISPATCHER can Create/View Booking Charge but not Void it, and has zero other financial access", () => {
     const dispatcher = DEFAULT_ROLE_PERMISSIONS.DISPATCHER;
     expect(dispatcher).toContain(PERMISSIONS.BOOKING_READ);
     expect(dispatcher).toContain(PERMISSIONS.BOOKING_WRITE);
@@ -36,7 +42,10 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(dispatcher).toContain(PERMISSIONS.DISPATCH_READ);
     expect(dispatcher).toContain(PERMISSIONS.GPS_READ);
     expect(dispatcher).toContain(PERMISSIONS.COMPANY_SETTINGS_READ);
+    expect(dispatcher).toContain(PERMISSIONS.BOOKING_CHARGE_READ);
+    expect(dispatcher).toContain(PERMISSIONS.BOOKING_CHARGE_WRITE);
 
+    expect(dispatcher).not.toContain(PERMISSIONS.BOOKING_CHARGE_VOID);
     expect(dispatcher).not.toContain(PERMISSIONS.DRIVER_WRITE);
     expect(dispatcher).not.toContain(PERMISSIONS.WALLET_READ);
     expect(dispatcher).not.toContain(PERMISSIONS.WALLET_WRITE);
@@ -47,7 +56,7 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(dispatcher).not.toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
   });
 
-  it("DRIVER only has self-service permissions plus companySettings:read, never the admin-side driver:* keys", () => {
+  it("DRIVER only has self-service permissions plus companySettings:read, never Booking Charge or the admin-side driver:* keys", () => {
     const driver = DEFAULT_ROLE_PERMISSIONS.DRIVER;
     expect(driver.sort()).toEqual(
       [
@@ -62,5 +71,8 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(driver).not.toContain(PERMISSIONS.DRIVER_READ);
     expect(driver).not.toContain(PERMISSIONS.DRIVER_WRITE);
     expect(driver).not.toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
+    expect(driver).not.toContain(PERMISSIONS.BOOKING_CHARGE_READ);
+    expect(driver).not.toContain(PERMISSIONS.BOOKING_CHARGE_WRITE);
+    expect(driver).not.toContain(PERMISSIONS.BOOKING_CHARGE_VOID);
   });
 });
