@@ -25,6 +25,10 @@
 | Settlement | `settlementTimezone` | String | `Asia/Kuala_Lumpur` |
 | Collection | `collectionVerificationRequired` | Boolean | `true` |
 | Collection | `maxUploadFileSizeMb` | Int | `5` |
+| Revenue Sharing（Module 11） | `companyCommissionType` / `companyCommissionValue` | enum / Int | `PERCENTAGE` / `15` |
+| Revenue Sharing（Module 11） | `dispatcherCommissionType` / `dispatcherCommissionValue` | enum / Int | `PERCENTAGE` / `0` |
+
+Revenue Sharing 的两组栏位是 [Revenue Sharing API](./revenue-sharing-api.md) 用的 Revenue Rule 配置——只对参与分润的 Booking Charge 生效，Driver Pool 没有独立栏位（定义上是余额），细节见该文件。
 
 ## Migration
 
@@ -33,7 +37,9 @@
 1. `ALTER TABLE company_settings ADD COLUMN ...`（12 个新栏位，全部带 `DEFAULT`，Postgres 会自动帮既有那一笔资料补上默认值，不需要额外的 `UPDATE` backfill）
 2. `INSERT INTO role_permissions` 补上 `companySettings:read` 给 `MANAGER`/`DISPATCHER`/`DRIVER`（`OWNER` 已经有，不重复插入；纯资料操作，不需要改任何 router/controller/service，跟 Module 7 的 RBAC 设计一致）
 
-已在本地空数据库（10 个 migration 全部套用）跟已有资料的 dev 数据库两种情境测过，都成功。
+[`20260807000000_revenue_sharing_rule`](../../apps/backend/prisma/migrations/20260807000000_revenue_sharing_rule/migration.sql) 之后又补上 4 个 Revenue Sharing 栏位，做法跟上面完全一样（`ADD COLUMN` 带 `DEFAULT`，不需要额外 backfill）。
+
+已在本地空数据库（14 个 migration 全部套用）跟已有资料的 dev 数据库两种情境测过，都成功。
 
 ## Backend API
 
@@ -44,6 +50,7 @@ Validation（`companySettings.controller.ts` 的 zod schema）：
 - `defaultSettlementTime` 必须符合 `HH:mm` 格式
 - `gpsUploadIntervalSeconds` 1–300、`connectionLostTimeoutSeconds`/`offlineTimeoutSeconds` 1–3600、`maxUploadFileSizeMb` 1–20
 - **合并后的最终值**一定要满足 `gpsUploadIntervalSeconds < connectionLostTimeoutSeconds < offlineTimeoutSeconds`（`companySettings.service.ts` 的 `assertConsistentThresholds`）——PATCH 允许只传部分栏位，所以这个检查用「这次没传的栏位就沿用现有值」合并后再验证，不能只看这次请求里有没有传，否则可能只改一个栏位就意外打破跟另一个没传的既有栏位之间的关系
+- `companyCommissionType`/`dispatcherCommissionType` **都是** `PERCENTAGE` 时，合并后的 `companyCommissionValue + dispatcherCommissionValue` 不能超过 `100`（`assertRevenueRuleSane`，同样是合并后校验）；混了 `FIXED_AMOUNT` 的组合没办法在这里判断超额，那是要看实际 Booking 参与分润总额的事，交给 [Revenue Sharing API](./revenue-sharing-api.md) 的 Preview/Finalize 当下验证
 
 Audit Log：每次 PATCH 都写一笔 `COMPANY_SETTINGS_UPDATE`，`beforeData`/`afterData` 是完整的设定快照（不只是有改的栏位），`actorUserId`/`actorRole` 记录修改人，`createdAt` 自动记录时间——修改人/时间/修改前/修改后全部齐全，不需要额外开发。
 

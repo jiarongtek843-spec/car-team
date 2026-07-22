@@ -39,6 +39,12 @@ export const PERMISSIONS = {
   BOOKING_CHARGE_READ: "bookingCharge:read",
   BOOKING_CHARGE_WRITE: "bookingCharge:write",
   BOOKING_CHARGE_VOID: "bookingCharge:void",
+  // Module 11（Revenue Sharing API）：Preview 是唯读计算，Finalize 才是真正建立 Snapshot、
+  // 把 Booking 财务状态收敛成 FINALIZED 的不可逆动作，两者分开授权，让 Dispatcher 只能
+  // 停在 Read（连 Preview 都不给，避免看起来像能操作）。
+  REVENUE_SHARING_READ: "revenueSharing:read",
+  REVENUE_SHARING_PREVIEW: "revenueSharing:preview",
+  REVENUE_SHARING_FINALIZE: "revenueSharing:finalize",
   // Driver 自助：只能操作自己的资料，不是「管理其他 Driver」（那是 DRIVER_READ/WRITE）。
   DRIVER_JOBS_SELF: "driverJobs:self",
   DRIVER_WALLET_SELF: "driverWallet:self",
@@ -66,7 +72,10 @@ const ADMIN_SIDE_PERMISSIONS: PermissionKey[] = [
   PERMISSIONS.COMPANY_SETTINGS_WRITE,
   PERMISSIONS.BOOKING_CHARGE_READ,
   PERMISSIONS.BOOKING_CHARGE_WRITE,
-  PERMISSIONS.BOOKING_CHARGE_VOID
+  PERMISSIONS.BOOKING_CHARGE_VOID,
+  PERMISSIONS.REVENUE_SHARING_READ,
+  PERMISSIONS.REVENUE_SHARING_PREVIEW,
+  PERMISSIONS.REVENUE_SHARING_FINALIZE
 ];
 
 /**
@@ -88,7 +97,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]> = {
     // Dispatcher 可以 Create/View Booking Charge（例如帮客户加一笔 Extra Stop），
     // 但不能 Void——冲销需要 Manager 以上的角色才能做。
     PERMISSIONS.BOOKING_CHARGE_READ,
-    PERMISSIONS.BOOKING_CHARGE_WRITE
+    PERMISSIONS.BOOKING_CHARGE_WRITE,
+    // Revenue Sharing 对 Dispatcher 是 View Only——连 Preview 都不给，避免误触发看起来
+    // 像是自己能计算/操作分润。
+    PERMISSIONS.REVENUE_SHARING_READ
   ],
   DRIVER: [
     PERMISSIONS.DRIVER_JOBS_SELF,

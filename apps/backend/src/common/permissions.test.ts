@@ -8,7 +8,7 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     );
   });
 
-  it("OWNER has every admin-side permission, including Company Settings and Booking Charge Void", () => {
+  it("OWNER has every admin-side permission, including Company Settings, Booking Charge Void, and Revenue Sharing Finalize", () => {
     const owner = DEFAULT_ROLE_PERMISSIONS.OWNER;
     expect(owner).toContain(PERMISSIONS.COMPANY_SETTINGS_READ);
     expect(owner).toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
@@ -18,9 +18,12 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(owner).toContain(PERMISSIONS.BOOKING_CHARGE_READ);
     expect(owner).toContain(PERMISSIONS.BOOKING_CHARGE_WRITE);
     expect(owner).toContain(PERMISSIONS.BOOKING_CHARGE_VOID);
+    expect(owner).toContain(PERMISSIONS.REVENUE_SHARING_READ);
+    expect(owner).toContain(PERMISSIONS.REVENUE_SHARING_PREVIEW);
+    expect(owner).toContain(PERMISSIONS.REVENUE_SHARING_FINALIZE);
   });
 
-  it("MANAGER has all day-to-day operations including Booking Charge Void, can read but not write Company Settings", () => {
+  it("MANAGER has all day-to-day operations including Booking Charge Void and Revenue Sharing Finalize, can read but not write Company Settings", () => {
     const manager = DEFAULT_ROLE_PERMISSIONS.MANAGER;
     expect(manager).toContain(PERMISSIONS.BOOKING_WRITE);
     expect(manager).toContain(PERMISSIONS.DRIVER_WRITE);
@@ -31,10 +34,13 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(manager).toContain(PERMISSIONS.BOOKING_CHARGE_READ);
     expect(manager).toContain(PERMISSIONS.BOOKING_CHARGE_WRITE);
     expect(manager).toContain(PERMISSIONS.BOOKING_CHARGE_VOID);
+    expect(manager).toContain(PERMISSIONS.REVENUE_SHARING_READ);
+    expect(manager).toContain(PERMISSIONS.REVENUE_SHARING_PREVIEW);
+    expect(manager).toContain(PERMISSIONS.REVENUE_SHARING_FINALIZE);
     expect(manager).not.toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
   });
 
-  it("DISPATCHER can Create/View Booking Charge but not Void it, and has zero other financial access", () => {
+  it("DISPATCHER can Create/View Booking Charge but not Void it, can only View Revenue Sharing, and has zero other financial access", () => {
     const dispatcher = DEFAULT_ROLE_PERMISSIONS.DISPATCHER;
     expect(dispatcher).toContain(PERMISSIONS.BOOKING_READ);
     expect(dispatcher).toContain(PERMISSIONS.BOOKING_WRITE);
@@ -44,8 +50,11 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(dispatcher).toContain(PERMISSIONS.COMPANY_SETTINGS_READ);
     expect(dispatcher).toContain(PERMISSIONS.BOOKING_CHARGE_READ);
     expect(dispatcher).toContain(PERMISSIONS.BOOKING_CHARGE_WRITE);
+    expect(dispatcher).toContain(PERMISSIONS.REVENUE_SHARING_READ);
 
     expect(dispatcher).not.toContain(PERMISSIONS.BOOKING_CHARGE_VOID);
+    expect(dispatcher).not.toContain(PERMISSIONS.REVENUE_SHARING_PREVIEW);
+    expect(dispatcher).not.toContain(PERMISSIONS.REVENUE_SHARING_FINALIZE);
     expect(dispatcher).not.toContain(PERMISSIONS.DRIVER_WRITE);
     expect(dispatcher).not.toContain(PERMISSIONS.WALLET_READ);
     expect(dispatcher).not.toContain(PERMISSIONS.WALLET_WRITE);
@@ -56,7 +65,7 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(dispatcher).not.toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
   });
 
-  it("DRIVER only has self-service permissions plus companySettings:read, never Booking Charge or the admin-side driver:* keys", () => {
+  it("DRIVER only has self-service permissions plus companySettings:read, never Booking Charge, Revenue Sharing, or the admin-side driver:* keys", () => {
     const driver = DEFAULT_ROLE_PERMISSIONS.DRIVER;
     expect(driver.sort()).toEqual(
       [
@@ -74,5 +83,8 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(driver).not.toContain(PERMISSIONS.BOOKING_CHARGE_READ);
     expect(driver).not.toContain(PERMISSIONS.BOOKING_CHARGE_WRITE);
     expect(driver).not.toContain(PERMISSIONS.BOOKING_CHARGE_VOID);
+    expect(driver).not.toContain(PERMISSIONS.REVENUE_SHARING_READ);
+    expect(driver).not.toContain(PERMISSIONS.REVENUE_SHARING_PREVIEW);
+    expect(driver).not.toContain(PERMISSIONS.REVENUE_SHARING_FINALIZE);
   });
 });

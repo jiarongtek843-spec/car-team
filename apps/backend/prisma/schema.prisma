@@ -287,6 +287,18 @@ model CompanySettings {
   collectionVerificationRequired Boolean @default(true) @map("collection_verification_required")
   maxUploadFileSizeMb            Int     @default(5) @map("max_upload_file_size_mb")
 
+  // Revenue Sharing（Module 11）：只对参与 Revenue Sharing 的 Charge（chargeType.
+  // participatesInRevenueSharing=true）的加总生效，Company/Dispatcher Commission 各自
+  // 独立算，互不影响，两者加总不能超过参与计算的总额（由 revenueSharing.calculator.ts
+  // 检查）。Driver Pool 没有独立栏位——定义上就是参与计算的总额扣掉两笔 Commission 后
+  // 的余额，见 docs/modules/revenue-sharing-api.md。未来如果要新增第三种 Commission
+  // （例如 Referral Commission），比照这两栏位的模式各加两个栏位即可，不需要改动
+  // Revenue Sharing 的计算/验证/Snapshot 逻辑本身。
+  companyCommissionType     CommissionType @default(PERCENTAGE) @map("company_commission_type")
+  companyCommissionValue    Int            @default(15) @map("company_commission_value")
+  dispatcherCommissionType  CommissionType @default(PERCENTAGE) @map("dispatcher_commission_type")
+  dispatcherCommissionValue Int            @default(0) @map("dispatcher_commission_value")
+
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("company_settings")
@@ -497,11 +509,15 @@ model RevenueSharingSnapshot {
   bookingId Int     @unique @map("booking_id")
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
 
-  triggeredBy         RevenueSnapshotTrigger @map("triggered_by")
-  companyRevenueCents Int                    @map("company_revenue_cents")
-  driverPoolCents     Int                    @map("driver_pool_cents")
-  // 当下参与计算的 Charge 明细快照（哪些 Charge、各自的分类跟金额），供审计用。
-  chargeBreakdown     Json                   @map("charge_breakdown")
+  triggeredBy               RevenueSnapshotTrigger @map("triggered_by")
+  companyRevenueCents       Int                    @map("company_revenue_cents")
+  // Module 11 起新增：Dispatcher Commission 独立于 Company Revenue 之外单独记录一份，
+  // 方便以后要单独结算给 Dispatcher 时可以直接追溯，不用从 chargeBreakdown 反推。
+  dispatcherCommissionCents Int                    @default(0) @map("dispatcher_commission_cents")
+  driverPoolCents           Int                    @map("driver_pool_cents")
+  // 当下参与计算的 Charge 明细快照（哪些 Charge、各自的分类跟金额）+ 套用的 Revenue Rule
+  // 明细，供审计用。
+  chargeBreakdown           Json                   @map("charge_breakdown")
 
   createdAt DateTime @default(now()) @map("created_at")
 

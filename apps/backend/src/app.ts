@@ -18,6 +18,7 @@ import { gpsRouter } from "./modules/gps/gps.routes.js";
 import { driverPresenceRouter } from "./modules/gps/driverPresence.routes.js";
 import { dispatchRouter } from "./modules/dispatch/dispatch.routes.js";
 import { bookingChargeRouter } from "./modules/bookingCharges/bookingCharge.routes.js";
+import { revenueSharingRouter } from "./modules/revenueSharing/revenueSharing.routes.js";
 import { errorHandler } from "./common/errorHandler.js";
 import { uploadsRoot } from "./common/upload.js";
 
@@ -52,5 +53,6 @@ app.use("/api/admin/gps", gpsRouter);
 app.use("/api/driver/presence", driverPresenceRouter);
 app.use("/api/admin/dispatch", dispatchRouter);
 app.use("/api/admin/booking-charges", bookingChargeRouter);
+app.use("/api/admin/revenue-sharing", revenueSharingRouter);
 
 app.use(errorHandler);

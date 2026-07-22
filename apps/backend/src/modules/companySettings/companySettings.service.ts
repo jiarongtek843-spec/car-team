@@ -28,7 +28,11 @@ export async function getCompanySettings() {
       defaultSettlementTime: "21:00",
       settlementTimezone: "Asia/Kuala_Lumpur",
       collectionVerificationRequired: true,
-      maxUploadFileSizeMb: 5
+      maxUploadFileSizeMb: 5,
+      companyCommissionType: "PERCENTAGE",
+      companyCommissionValue: 15,
+      dispatcherCommissionType: "PERCENTAGE",
+      dispatcherCommissionValue: 0
     }
   });
 }
@@ -48,6 +52,10 @@ export interface UpdateCompanySettingsInput {
   settlementTimezone?: string;
   collectionVerificationRequired?: boolean;
   maxUploadFileSizeMb?: number;
+  companyCommissionType?: CommissionType;
+  companyCommissionValue?: number;
+  dispatcherCommissionType?: CommissionType;
+  dispatcherCommissionValue?: number;
 }
 
 /**
@@ -68,6 +76,25 @@ function assertConsistentThresholds(merged: {
   }
 }
 
+/**
+ * 只在两者都是 PERCENTAGE 时才能在这里就挡下明显不合理的设定（两个百分比加起来超过
+ * 100%，Driver Pool 会变负数）。混了 FIXED_AMOUNT 的组合没办法在这里判断——固定金额
+ * 是否超额要看实际 Booking 参与分润的总额，那是 revenueSharing.calculator.ts 在
+ * Preview/Finalize 当下才能算的事，不是 Company Settings 更新时能验证的。
+ */
+function assertRevenueRuleSane(merged: {
+  companyCommissionType: CommissionType;
+  companyCommissionValue: number;
+  dispatcherCommissionType: CommissionType;
+  dispatcherCommissionValue: number;
+}) {
+  if (merged.companyCommissionType === "PERCENTAGE" && merged.dispatcherCommissionType === "PERCENTAGE") {
+    if (merged.companyCommissionValue + merged.dispatcherCommissionValue > 100) {
+      throw new ValidationError("Company Commission % + Dispatcher Commission % 不能超过 100%");
+    }
+  }
+}
+
 export async function updateCompanySettings(input: UpdateCompanySettingsInput) {
   const current = await getCompanySettings();
 
@@ -77,6 +104,13 @@ export async function updateCompanySettings(input: UpdateCompanySettingsInput) {
     offlineTimeoutSeconds: input.offlineTimeoutSeconds ?? current.offlineTimeoutSeconds
   };
   assertConsistentThresholds(merged);
+
+  assertRevenueRuleSane({
+    companyCommissionType: input.companyCommissionType ?? current.companyCommissionType,
+    companyCommissionValue: input.companyCommissionValue ?? current.companyCommissionValue,
+    dispatcherCommissionType: input.dispatcherCommissionType ?? current.dispatcherCommissionType,
+    dispatcherCommissionValue: input.dispatcherCommissionValue ?? current.dispatcherCommissionValue
+  });
 
   return prisma.companySettings.update({
     where: { id: current.id },

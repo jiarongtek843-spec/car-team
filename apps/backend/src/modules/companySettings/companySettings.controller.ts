@@ -28,7 +28,13 @@ const updateSchema = z.object({
 
   // Collection
   collectionVerificationRequired: z.boolean().optional(),
-  maxUploadFileSizeMb: z.coerce.number().int().min(1).max(20).optional()
+  maxUploadFileSizeMb: z.coerce.number().int().min(1).max(20).optional(),
+
+  // Revenue Sharing（Module 11）
+  companyCommissionType: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]).optional(),
+  companyCommissionValue: z.coerce.number().int().nonnegative().optional(),
+  dispatcherCommissionType: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]).optional(),
+  dispatcherCommissionValue: z.coerce.number().int().nonnegative().optional()
 });
 
 export async function get(_req: Request, res: Response) {

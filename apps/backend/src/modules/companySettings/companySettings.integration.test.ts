@@ -28,7 +28,11 @@ afterEach(async () => {
       defaultSettlementTime: originalSettings.defaultSettlementTime,
       settlementTimezone: originalSettings.settlementTimezone,
       collectionVerificationRequired: originalSettings.collectionVerificationRequired,
-      maxUploadFileSizeMb: originalSettings.maxUploadFileSizeMb
+      maxUploadFileSizeMb: originalSettings.maxUploadFileSizeMb,
+      companyCommissionType: originalSettings.companyCommissionType,
+      companyCommissionValue: originalSettings.companyCommissionValue,
+      dispatcherCommissionType: originalSettings.dispatcherCommissionType,
+      dispatcherCommissionValue: originalSettings.dispatcherCommissionValue
     }
   });
 });
@@ -95,5 +99,56 @@ describe("CompanySettings (Module 8)", () => {
     const updated = await companySettingsService.updateCompanySettings({ offlineTimeoutSeconds: 90 });
     expect(updated.offlineTimeoutSeconds).toBe(90);
     expect(updated.connectionLostTimeoutSeconds).toBe(30);
+  });
+
+  it("persists Revenue Sharing rule fields (companyCommission/dispatcherCommission type+value)", async () => {
+    const updated = await companySettingsService.updateCompanySettings({
+      companyCommissionType: "PERCENTAGE",
+      companyCommissionValue: 20,
+      dispatcherCommissionType: "FIXED_AMOUNT",
+      dispatcherCommissionValue: 300
+    });
+
+    expect(updated.companyCommissionType).toBe("PERCENTAGE");
+    expect(updated.companyCommissionValue).toBe(20);
+    expect(updated.dispatcherCommissionType).toBe("FIXED_AMOUNT");
+    expect(updated.dispatcherCommissionValue).toBe(300);
+  });
+
+  it("rejects companyCommission% + dispatcherCommission% over 100 when both are PERCENTAGE", async () => {
+    await expect(
+      companySettingsService.updateCompanySettings({
+        companyCommissionType: "PERCENTAGE",
+        companyCommissionValue: 80,
+        dispatcherCommissionType: "PERCENTAGE",
+        dispatcherCommissionValue: 30
+      })
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("validates the merged Revenue Sharing rule on a partial update, not just the fields in the request", async () => {
+    await companySettingsService.updateCompanySettings({
+      companyCommissionType: "PERCENTAGE",
+      companyCommissionValue: 70,
+      dispatcherCommissionType: "PERCENTAGE",
+      dispatcherCommissionValue: 20
+    });
+
+    // 只改 dispatcherCommissionValue，没有传 companyCommissionValue，但合并后 70+40=110% 仍然要被挡下来。
+    await expect(companySettingsService.updateCompanySettings({ dispatcherCommissionValue: 40 })).rejects.toThrow(
+      ValidationError
+    );
+  });
+
+  it("allows a PERCENTAGE + FIXED_AMOUNT combination regardless of value (can't be validated without a booking's actual total)", async () => {
+    const updated = await companySettingsService.updateCompanySettings({
+      companyCommissionType: "PERCENTAGE",
+      companyCommissionValue: 90,
+      dispatcherCommissionType: "FIXED_AMOUNT",
+      dispatcherCommissionValue: 999999
+    });
+
+    expect(updated.companyCommissionValue).toBe(90);
+    expect(updated.dispatcherCommissionValue).toBe(999999);
   });
 });
