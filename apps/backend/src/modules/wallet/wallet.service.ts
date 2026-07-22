@@ -31,6 +31,7 @@ export async function createLegEarning(
       bookingId: leg.bookingId,
       legId: leg.id,
       transactionType: "LEG_EARNING",
+      source: "BOOKING_REVENUE",
       amountCents: leg.earningAllocationCents ?? 0,
       description: `Leg #${leg.sequence} earning`,
       status: "PENDING",
@@ -168,6 +169,7 @@ export async function createAdjustment(
     data: {
       driverId: input.driverId,
       transactionType: type,
+      source: type === "MANUAL_ADJUSTMENT" ? "MANUAL" : "SETTLEMENT_CORRECTION",
       amountCents: input.amountCents,
       description: input.reason,
       status: "PENDING",
@@ -219,6 +221,7 @@ export async function createReversalTransaction(
       driverId: input.driverId,
       bookingId: input.bookingId,
       transactionType: "SETTLEMENT_ADJUSTMENT",
+      source: "SETTLEMENT_CORRECTION",
       amountCents: input.amountCents,
       description: input.description,
       status: "PENDING",

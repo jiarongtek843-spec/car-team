@@ -45,6 +45,16 @@ enum WalletTransactionType {
   LEG_EARNING
   MANUAL_ADJUSTMENT
   SETTLEMENT_ADJUSTMENT
+  // Module 9：Trip Expense 的 paidBy=DRIVER 且 reimbursementRequired=true 时产生。
+  EXPENSE_REIMBURSEMENT
+}
+
+// Module 9：钱的源头分类，独立于 WalletTransactionType 之外，给 Money Reference Trace 用。
+enum WalletTransactionSource {
+  BOOKING_REVENUE
+  TRIP_EXPENSE
+  MANUAL
+  SETTLEMENT_CORRECTION
 }
 
 enum WalletTransactionStatus {
@@ -86,6 +96,50 @@ enum CollectionStatus {
   VERIFIED
   SETTLED
   VOIDED
+}
+
+// Module 9（Financial Model v2）：Booking 的财务状态，跟营运面 BookingStatus 并行，
+// 同样是派生值，不能手动设定。见 docs/design/financial-model-v2.md 第 3 章。
+enum BookingFinancialStatus {
+  OPEN
+  ACCRUING
+  FINALIZED
+  VOIDED
+}
+
+// BookingCharge 的更正标记：原始记录是 NONE；补收新增一笔 ADDITION；冲销新增一笔 REVERSAL。
+// 两者都要靠 adjustsChargeId 指回原始 Charge——DB 层用 CHECK constraint 保证这个搭配合法
+// （见 migration.sql，Prisma schema 语法本身不支援任意 CHECK constraint）。
+enum ChargeAdjustmentType {
+  NONE
+  ADDITION
+  REVERSAL
+}
+
+enum TripExpenseType {
+  TOLL
+  PARKING
+  FUEL
+  OTHER
+}
+
+enum TripExpensePaidBy {
+  COMPANY
+  DRIVER
+}
+
+enum TripExpenseStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  REIMBURSED
+  VOIDED
+}
+
+// 目前唯一的触发来源；保留成 enum（不是布林值）方便以后新增其他触发情境
+// （例如手动重算）而不需要改栏位型别。
+enum RevenueSnapshotTrigger {
+  BOOKING_FINALIZED
 }
 
 // RBAC（Module 7）：Role 存数据库，Permission Key 固定写在
@@ -143,6 +197,13 @@ model User {
   collectionsVerified Collection[] @relation("CollectionVerifiedBy")
   collectionsVoided   Collection[] @relation("CollectionVoidedBy")
 
+  bookingChargesCreated BookingCharge[] @relation("BookingChargeCreatedBy")
+
+  tripExpensesCreated  TripExpense[] @relation("TripExpenseCreatedBy")
+  tripExpensesVerified TripExpense[] @relation("TripExpenseVerifiedBy")
+  tripExpensesRejected TripExpense[] @relation("TripExpenseRejectedBy")
+  tripExpensesVoided   TripExpense[] @relation("TripExpenseVoidedBy")
+
   @@map("users")
 }
 
@@ -168,9 +229,9 @@ model Driver {
   // GPS 上线状态。isOnline 是 Driver 自己按 Go Online/Go Offline 设的旗标；实际显示给 Admin 的
   // presence（是否 Connection Lost / 自动 Offline）由 gps.service.ts 依据 DriverLocation 的
   // 最后上传时间即时算出，不是只看这个栏位——见 docs/modules/gps.md。
-  isOnline     Boolean         @default(false) @map("is_online")
-  onlineSince  DateTime?       @map("online_since")
-  location     DriverLocation?
+  isOnline    Boolean         @default(false) @map("is_online")
+  onlineSince DateTime?       @map("online_since")
+  location    DriverLocation?
 
   @@map("drivers")
 }
@@ -245,6 +306,11 @@ model Booking {
   platformAmountCents     Int            @default(0) @map("platform_amount_cents")
   driverPoolAmountCents   Int            @default(0) @map("driver_pool_amount_cents")
 
+  // Module 9 起，以上四个金额栏位改为「快取的计算结果」：totalAmountCents = SUM(BookingCharge)，
+  // platformAmountCents/driverPoolAmountCents 来自 Revenue Sharing 即时计算，不再接受 API
+  // 直接写入。栏位本身保留不删，避免 Breaking Migration（见 docs/design/database-schema-v2.md）。
+  financialStatus BookingFinancialStatus @default(OPEN) @map("financial_status")
+
   status    BookingStatus @default(PENDING)
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @updatedAt @map("updated_at")
@@ -252,7 +318,11 @@ model Booking {
 
   walletTransactions WalletTransaction[]
   collections        Collection[]
+  charges            BookingCharge[]
+  tripExpenses       TripExpense[]
+  revenueSnapshot    RevenueSharingSnapshot?
 
+  @@index([financialStatus])
   @@map("bookings")
 }
 
@@ -285,15 +355,163 @@ model Leg {
 
   walletTransactions WalletTransaction[]
   collections        Collection[]
+  bookingCharges     BookingCharge[]
+  tripExpenses       TripExpense[]
 
   @@unique([bookingId, sequence])
   @@map("legs")
 }
 
+// Module 9（Financial Model v2）：Booking Charge 的分类参考资料表，决定 Revenue Rule。
+// 新增分类是纯资料操作，不需要改业务逻辑代码——跟 Role（Module 7）、CompanySettings
+// （Module 8）是同一种设计哲学。见 docs/design/financial-model-v2.md 第 4 章。
+model ChargeType {
+  id    Int    @id @default(autoincrement())
+  key   String @unique
+  label String
+
+  // true 时这笔 Charge 按 Booking 的 Commission % 拆 Platform/Driver 两份，
+  // isCompanyRevenue 在这个情况下不生效（已经是拆分的，不是二选一）。
+  participatesInRevenueSharing Boolean @default(false) @map("participates_in_revenue_sharing")
+  // 只有 participatesInRevenueSharing = false 时才有意义：true 全部算 Company Revenue，
+  // false 全部算 Driver Passthrough。
+  isCompanyRevenue             Boolean @default(false) @map("is_company_revenue")
+
+  // 停用用这个栏位，不做物理删除——停用不影响历史 Charge 引用这个分类。
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  charges BookingCharge[]
+
+  @@index([active])
+  @@map("charge_types")
+}
+
+// 客户应该支付的每一笔费用，独立 Ledger，Append Only——没有 UPDATE/DELETE，
+// 更正一律新增新记录：补收用 adjustmentType=ADDITION，冲销用 REVERSAL，
+// adjustsChargeId 指回原始 Charge。Booking.totalAmountCents = SUM(amountCents)。
+model BookingCharge {
+  id Int @id @default(autoincrement())
+
+  bookingId Int     @map("booking_id")
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  legId     Int?    @map("leg_id")
+  leg       Leg?    @relation(fields: [legId], references: [id], onDelete: SetNull)
+
+  chargeTypeId Int        @map("charge_type_id")
+  chargeType   ChargeType @relation(fields: [chargeTypeId], references: [id], onDelete: Restrict)
+
+  amountCents Int     @map("amount_cents")
+  description String?
+
+  // 只有 chargeType.participatesInRevenueSharing = true 的 Charge 才需要填；建立时从
+  // Booking 当下的默认值 snapshot 一份，允许单独覆盖，之后不会因为 Booking 的默认值
+  // 改变而跟着变（Financial Principle：Snapshot，见 financial-model-v2.md 第 2 章）。
+  commissionType  CommissionType? @map("commission_type")
+  commissionValue Int?            @map("commission_value")
+
+  // adjustmentType=NONE 时 adjustsChargeId 必须是 null；ADDITION/REVERSAL 时必须指向原始
+  // Charge——这个搭配关系由 migration.sql 里的 CHECK constraint 在 DB 层保证。
+  adjustmentType   ChargeAdjustmentType @default(NONE) @map("adjustment_type")
+  adjustsChargeId  Int?                 @map("adjusts_charge_id")
+  adjustsCharge    BookingCharge?       @relation("BookingChargeAdjustments", fields: [adjustsChargeId], references: [id], onDelete: Restrict)
+  adjustments      BookingCharge[]      @relation("BookingChargeAdjustments")
+  adjustmentReason String?              @map("adjustment_reason")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  createdBy     Int?     @map("created_by")
+  createdByUser User?    @relation("BookingChargeCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  collections        Collection[]
+  walletTransactions WalletTransaction[]
+
+  @@index([bookingId])
+  @@index([legId])
+  @@index([chargeTypeId])
+  @@index([adjustsChargeId])
+  @@index([chargeTypeId, createdAt])
+  @@map("booking_charges")
+}
+
+// 行程中公司或司机的实际支出（过路费/停车费/油钱…），独立 Ledger，Append Only，
+// 完全不影响客户应付金额，也不参与 Revenue Sharing。更正用 reversesExpenseId
+// （Void 后重建），跟 BookingCharge 的 Adjustment 机制不同——Expense 没有「补收」的概念。
+model TripExpense {
+  id Int @id @default(autoincrement())
+
+  bookingId Int     @map("booking_id")
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  legId     Int?    @map("leg_id")
+  leg       Leg?    @relation(fields: [legId], references: [id], onDelete: SetNull)
+
+  expenseType           TripExpenseType   @map("expense_type")
+  amountCents           Int               @map("amount_cents")
+  paidBy                TripExpensePaidBy @map("paid_by")
+  // 只在 paidBy=DRIVER 时有意义。true 时会走 Driver Reimbursement，产生一笔
+  // EXPENSE_REIMBURSEMENT 的 WalletTransaction。
+  reimbursementRequired Boolean           @default(false) @map("reimbursement_required")
+  proofImageUrl         String?           @map("proof_image_url")
+  description           String?
+  status                TripExpenseStatus @default(PENDING)
+
+  reversesExpenseId Int?          @map("reverses_expense_id")
+  reversesExpense   TripExpense?  @relation("TripExpenseReversal", fields: [reversesExpenseId], references: [id], onDelete: Restrict)
+  reversedBy        TripExpense[] @relation("TripExpenseReversal")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  createdBy     Int?     @map("created_by")
+  createdByUser User?    @relation("TripExpenseCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  verifiedAt     DateTime? @map("verified_at")
+  verifiedBy     Int?      @map("verified_by")
+  verifiedByUser User?     @relation("TripExpenseVerifiedBy", fields: [verifiedBy], references: [id], onDelete: Restrict)
+
+  rejectedAt      DateTime? @map("rejected_at")
+  rejectedBy      Int?      @map("rejected_by")
+  rejectedByUser  User?     @relation("TripExpenseRejectedBy", fields: [rejectedBy], references: [id], onDelete: Restrict)
+  rejectionReason String?   @map("rejection_reason")
+
+  voidedAt     DateTime? @map("voided_at")
+  voidedBy     Int?      @map("voided_by")
+  voidedByUser User?     @relation("TripExpenseVoidedBy", fields: [voidedBy], references: [id], onDelete: Restrict)
+  voidReason   String?   @map("void_reason")
+
+  walletTransaction WalletTransaction?
+
+  @@unique([reversesExpenseId])
+  @@index([bookingId])
+  @@index([legId])
+  @@index([status])
+  @@index([paidBy, reimbursementRequired])
+  @@map("trip_expenses")
+}
+
+// Booking 进入 FINALIZED 财务状态时产生的唯一一笔快照，锁定当下算出来的 Company Revenue /
+// Driver Pool，供报表/审计使用，永不重算、永不覆写——没有 UPDATE 路径，bookingId 唯一约束
+// 保证每张 Booking 最多一笔。见 financial-model-v2.md 第 7 章 Revenue Sharing Snapshot 机制。
+model RevenueSharingSnapshot {
+  id Int @id @default(autoincrement())
+
+  bookingId Int     @unique @map("booking_id")
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+
+  triggeredBy         RevenueSnapshotTrigger @map("triggered_by")
+  companyRevenueCents Int                    @map("company_revenue_cents")
+  driverPoolCents     Int                    @map("driver_pool_cents")
+  // 当下参与计算的 Charge 明细快照（哪些 Charge、各自的分类跟金额），供审计用。
+  chargeBreakdown     Json                   @map("charge_breakdown")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("revenue_sharing_snapshots")
+}
+
 // 唯一的记账来源，只能新增、不能修改历史金额。要更正就新增一笔反向 Adjustment。
 model WalletTransaction {
-  id     Int    @id @default(autoincrement())
-  driverId Int  @map("driver_id")
+  id       Int    @id @default(autoincrement())
+  driverId Int    @map("driver_id")
   driver   Driver @relation(fields: [driverId], references: [id])
 
   bookingId Int?     @map("booking_id")
@@ -302,14 +520,30 @@ model WalletTransaction {
   leg       Leg?     @relation(fields: [legId], references: [id])
 
   transactionType WalletTransactionType   @map("transaction_type")
+  // 钱的源头分类，独立于 transactionType 之外，给 Money Reference Trace 用
+  // （financial-model-v2.md 第 12 章）。LEG_EARNING→BOOKING_REVENUE、
+  // MANUAL_ADJUSTMENT→MANUAL、SETTLEMENT_ADJUSTMENT→SETTLEMENT_CORRECTION、
+  // EXPENSE_REIMBURSEMENT→TRIP_EXPENSE，一一对应。
+  source          WalletTransactionSource @map("source")
   amountCents     Int                     @map("amount_cents")
   description     String?
   status          WalletTransactionStatus @default(PENDING)
   effectiveDate   DateTime                @map("effective_date") @db.Date
 
-  createdAt DateTime @default(now()) @map("created_at")
-  createdBy Int?     @map("created_by")
-  createdByUser User? @relation("WalletTransactionCreatedBy", fields: [createdBy], references: [id])
+  // 只有 source=TRIP_EXPENSE 会用到：这笔报销交易对应哪一笔 TripExpense，@unique 防止
+  // 同一笔 Expense 被报销两次。
+  tripExpenseId Int?         @unique @map("trip_expense_id")
+  tripExpense   TripExpense? @relation(fields: [tripExpenseId], references: [id], onDelete: Restrict)
+
+  // 追溯用（可选）：这笔交易是因为哪一笔特定的 BookingCharge（通常是 FINALIZED 后的
+  // Adjustment）而直接产生的。一般 Leg 完成产生的 LEG_EARNING 是从整个 Driver Pool
+  // 聚合分配而来，不对应单一 Charge，这个栏位留空，只靠既有的 legId 参照。
+  bookingChargeId Int?           @map("booking_charge_id")
+  bookingCharge   BookingCharge? @relation(fields: [bookingChargeId], references: [id], onDelete: SetNull)
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  createdBy     Int?     @map("created_by")
+  createdByUser User?    @relation("WalletTransactionCreatedBy", fields: [createdBy], references: [id])
 
   settledAt    DateTime?   @map("settled_at")
   settlementId Int?        @map("settlement_id")
@@ -324,18 +558,20 @@ model WalletTransaction {
 
   // 一个 Leg 一辈子只能有一笔有效的 LEG_EARNING，DB 层杜绝重复记账。
   @@unique([legId, transactionType])
+  @@index([source])
+  @@index([bookingChargeId])
   @@map("wallet_transactions")
 }
 
 // 不可变的日结纪录。Completed 后金额不可再改，要更正另开 Adjustment 或走 Void 流程。
 model Settlement {
-  id             Int              @id @default(autoincrement())
-  reference      String           @unique
-  driverId       Int              @map("driver_id")
-  driver         Driver           @relation(fields: [driverId], references: [id])
-  periodStart    DateTime         @map("period_start") @db.Date
-  periodEnd      DateTime         @map("period_end") @db.Date
-  status         SettlementStatus @default(DRAFT)
+  id          Int              @id @default(autoincrement())
+  reference   String           @unique
+  driverId    Int              @map("driver_id")
+  driver      Driver           @relation(fields: [driverId], references: [id])
+  periodStart DateTime         @map("period_start") @db.Date
+  periodEnd   DateTime         @map("period_end") @db.Date
+  status      SettlementStatus @default(DRAFT)
 
   // netAmountCents = walletAmountCents - collectionAmountCents。
   // 正数代表 Company Pay Driver，负数代表 Driver Need Return Company。
@@ -347,10 +583,10 @@ model Settlement {
   createdBy     Int?     @map("created_by")
   createdByUser User?    @relation("SettlementCreatedBy", fields: [createdBy], references: [id])
 
-  voidedAt   DateTime? @map("voided_at")
-  voidedBy   Int?      @map("voided_by")
-  voidedByUser User?   @relation("SettlementVoidedBy", fields: [voidedBy], references: [id])
-  voidReason String?   @map("void_reason")
+  voidedAt     DateTime? @map("voided_at")
+  voidedBy     Int?      @map("voided_by")
+  voidedByUser User?     @relation("SettlementVoidedBy", fields: [voidedBy], references: [id])
+  voidReason   String?   @map("void_reason")
 
   items                SettlementItem[]
   transactions         WalletTransaction[] @relation("SettlementTransactions")
@@ -378,6 +614,19 @@ model Collection {
   paymentMethod CollectionPaymentMethod @map("payment_method")
   status        CollectionStatus        @default(PENDING)
 
+  // 单向、可选：这笔实收对应哪一笔应收费用，纯核对标注，不做金额一致性校验，
+  // BookingCharge 完全不知道 Collection 存在（见 financial-model-v2.md 第 6 章）。
+  relatedChargeId Int?           @map("related_charge_id")
+  relatedCharge   BookingCharge? @relation(fields: [relatedChargeId], references: [id], onDelete: SetNull)
+
+  // Partial Collection（分次收款）：第一笔（parentCollectionId=null）带 expectedAmountCents
+  // 当作这一组的应收总额；之后每一次实际收到钱都是新增一笔独立记录，parentCollectionId
+  // 指回第一笔。Received/Outstanding 都是衍生计算，不存 DB（见 financial-model-v2.md 第 6 章）。
+  expectedAmountCents Int?         @map("expected_amount_cents")
+  parentCollectionId  Int?         @map("parent_collection_id")
+  parentCollection    Collection?  @relation("CollectionPartialPayments", fields: [parentCollectionId], references: [id], onDelete: Restrict)
+  partialPayments     Collection[] @relation("CollectionPartialPayments")
+
   collectedAt DateTime? @map("collected_at")
 
   remark        String?
@@ -387,32 +636,34 @@ model Collection {
   createdBy     Int?     @map("created_by")
   createdByUser User?    @relation("CollectionCreatedBy", fields: [createdBy], references: [id])
 
-  verifiedAt      DateTime? @map("verified_at")
-  verifiedBy      Int?      @map("verified_by")
-  verifiedByUser  User?     @relation("CollectionVerifiedBy", fields: [verifiedBy], references: [id])
+  verifiedAt     DateTime? @map("verified_at")
+  verifiedBy     Int?      @map("verified_by")
+  verifiedByUser User?     @relation("CollectionVerifiedBy", fields: [verifiedBy], references: [id])
 
-  voidedAt   DateTime? @map("voided_at")
-  voidedBy   Int?      @map("voided_by")
-  voidedByUser User?   @relation("CollectionVoidedBy", fields: [voidedBy], references: [id])
-  voidReason String?   @map("void_reason")
+  voidedAt     DateTime? @map("voided_at")
+  voidedBy     Int?      @map("voided_by")
+  voidedByUser User?     @relation("CollectionVoidedBy", fields: [voidedBy], references: [id])
+  voidReason   String?   @map("void_reason")
 
   settledAt    DateTime?   @map("settled_at")
   settlementId Int?        @map("settlement_id")
   settlement   Settlement? @relation("SettlementCollections", fields: [settlementId], references: [id])
 
+  @@index([relatedChargeId])
+  @@index([parentCollectionId])
   @@map("collections")
 }
 
 // 记录一笔 Settlement 包含哪些 Wallet Transaction。walletTransactionId 加 @unique，
 // 保证同一笔 Transaction 不会同时出现在两个 Settlement 里。
 model SettlementItem {
-  id                  Int      @id @default(autoincrement())
-  settlementId        Int      @map("settlement_id")
-  settlement          Settlement @relation(fields: [settlementId], references: [id])
-  walletTransactionId Int      @unique @map("wallet_transaction_id")
+  id                  Int               @id @default(autoincrement())
+  settlementId        Int               @map("settlement_id")
+  settlement          Settlement        @relation(fields: [settlementId], references: [id])
+  walletTransactionId Int               @unique @map("wallet_transaction_id")
   walletTransaction   WalletTransaction @relation(fields: [walletTransactionId], references: [id])
-  amountCents         Int      @map("amount_cents")
-  createdAt           DateTime @default(now()) @map("created_at")
+  amountCents         Int               @map("amount_cents")
+  createdAt           DateTime          @default(now()) @map("created_at")
 
   @@map("settlement_items")
 }
@@ -421,19 +672,19 @@ model SettlementItem {
 // 方便追查是谁在什么时候做了什么。beforeData/afterData 用在真的有「改动前后」的操作；
 // 单纯的建立事件（例如 LEG_EARNING_CREATED）只会有 afterData。metadata 放其他辅助资讯（原因、关联 id 等）。
 model AuditLog {
-  id          Int       @id @default(autoincrement())
-  actorUserId Int?      @map("actor_user_id")
-  actorUser   User?     @relation(fields: [actorUserId], references: [id])
+  id          Int      @id @default(autoincrement())
+  actorUserId Int?     @map("actor_user_id")
+  actorUser   User?    @relation(fields: [actorUserId], references: [id])
   // 存 Role.key 的字串快照（不是外键），理由跟 RolePermission.permissionKey 一样：
   // 以后新增角色是纯资料操作，不应该反过来又要求这里做一次 schema migration。
-  actorRole   String?   @map("actor_role")
+  actorRole   String?  @map("actor_role")
   action      String
-  entityType  String    @map("entity_type")
-  entityId    Int       @map("entity_id")
-  beforeData  Json?     @map("before_data")
-  afterData   Json?     @map("after_data")
+  entityType  String   @map("entity_type")
+  entityId    Int      @map("entity_id")
+  beforeData  Json?    @map("before_data")
+  afterData   Json?    @map("after_data")
   metadata    Json?
-  createdAt   DateTime  @default(now()) @map("created_at")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   @@map("audit_logs")
 }
