@@ -192,21 +192,48 @@ model DriverLocation {
   @@map("driver_locations")
 }
 
-// 单例设定表，只会有一笔（id=1）。新 Booking 建立时读这里当默认抽成，
-// 不要把数值写死在程式码里。
+// 单例设定表，只会有一笔（id=1）。Module 8 起，所有系统模块的可调参数（GPS 阈值、
+// Collection 上传大小上限、Booking 默认抽成…）统一从这里读，不要把数值写死在程式码里。
 model CompanySettings {
-  id                             Int            @id @default(autoincrement())
-  defaultCommissionType          CommissionType @default(PERCENTAGE) @map("default_commission_type")
+  id Int @id @default(autoincrement())
+
+  // General
+  companyName String @default("") @map("company_name")
+  timezone    String @default("Asia/Kuala_Lumpur") @map("timezone")
+  currency    String @default("RM") @map("currency")
+
+  // Booking（defaultCommissionType/Value 是 Module 3 就有的既有栏位，Booking 建立时读这里当默认抽成）
+  defaultCommissionType    CommissionType @default(PERCENTAGE) @map("default_commission_type")
   // PERCENTAGE 时是整数百分比（15 = 15%）；FIXED_AMOUNT 时是 cents。
-  defaultCommissionValue         Int            @default(15) @map("default_commission_value")
-  updatedAt                      DateTime       @updatedAt @map("updated_at")
+  defaultCommissionValue   Int            @default(15) @map("default_commission_value")
+  // 目前只存资料、不影响实际行为（业务逻辑本来就一直是「允许手动分配」/「一定要 Driver Accept」），
+  // 保留给未来真的要做成可切换行为时使用，见 docs/modules/company-settings.md 已知限制。
+  allowManualLegAllocation Boolean        @default(true) @map("allow_manual_leg_allocation")
+  requireDriverAccept      Boolean        @default(true) @map("require_driver_accept")
+
+  // GPS（gps.service.ts 的 presence 阈值、前端上传间隔，全部从这里读，不再写死常数）
+  gpsUploadIntervalSeconds     Int @default(5) @map("gps_upload_interval_seconds")
+  connectionLostTimeoutSeconds Int @default(30) @map("connection_lost_timeout_seconds")
+  offlineTimeoutSeconds        Int @default(120) @map("offline_timeout_seconds")
+
+  // Settlement（目前没有任何排程会真的用到这两个栏位——现在的 Daily Settlement 是手动触发，
+  // 这两个栏位是给未来「自动排程结算」预留的设定，见已知限制）
+  defaultSettlementTime String @default("21:00") @map("default_settlement_time")
+  settlementTimezone    String @default("Asia/Kuala_Lumpur") @map("settlement_timezone")
+
+  // Collection（maxUploadFileSizeMb 真的会拿去限制上传大小；collectionVerificationRequired
+  // 目前只存资料，业务逻辑本来就一直要求 Verified 才能结算，见已知限制）
+  collectionVerificationRequired Boolean @default(true) @map("collection_verification_required")
+  maxUploadFileSizeMb            Int     @default(5) @map("max_upload_file_size_mb")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("company_settings")
 }
 
 model Booking {
-  id       Int    @id @default(autoincrement())
-  girlName String @map("girl_name")
+  id       Int     @id @default(autoincrement())
+  girlName String  @map("girl_name")
   notes    String?
 
   // Booking 总价与抽成。建立时从 CompanySettings 复制默认值，之后可单独覆盖这张 Booking，

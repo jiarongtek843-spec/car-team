@@ -2,7 +2,7 @@
 
 ## 概念
 
-Driver 登入后可以自己 Go Online / Go Offline；上线期间前端每 5 秒上传一次目前位置（座标、速度、方向、电量，若装置提供）。Admin 有一个 Dashboard（List View，第一版不做地图）能即时看到所有在线 Driver 的位置跟状态；Booking Detail 页面也能看到目前负责这个 Leg 的 Driver 的实时状态。
+Driver 登入后可以自己 Go Online / Go Offline；上线期间前端每隔 GPS Upload Interval（预设 5 秒，Module 8 起从 Company Settings 的 `gpsUploadIntervalSeconds` 读取，不再写死）上传一次目前位置（座标、速度、方向、电量，若装置提供）。Admin 有一个 Dashboard（List View，第一版不做地图）能即时看到所有在线 Driver 的位置跟状态；Booking Detail 页面也能看到目前负责这个 Leg 的 Driver 的实时状态。
 
 **GPS 完全独立于 Booking**：上传失败、Driver 忘记上线、定位权限被拒——这些都不会、也不能影响 Leg/Booking 的任何操作。整个模块刻意设计成「读的时候才计算状态」，不会有任何背景 Job/Cron 去改动 Booking 或 Wallet 的资料。
 
@@ -19,8 +19,8 @@ Driver 登入后可以自己 Go Online / Go Offline；上线期间前端每 5 �
 
 1. `isOnline === false` → `OFFLINE`
 2. 否则算「距离最后一次收到 GPS 的秒数」（`receivedAt` 没有就退回 `onlineSince`）：
-   - 超过 **120 秒**（`AUTO_OFFLINE_THRESHOLD_SECONDS`）→ `OFFLINE`（同时会顺手把 DB 里的 `isOnline` 打回 `false`，见下方「自动离线」）
-   - 超过 **30 秒**（`CONNECTION_LOST_THRESHOLD_SECONDS`）→ `CONNECTION_LOST`
+   - 超过 **Offline Timeout**（预设 120 秒，Module 8 起改从 Company Settings 的 `offlineTimeoutSeconds` 读取，不再写死）→ `OFFLINE`（同时会顺手把 DB 里的 `isOnline` 打回 `false`，见下方「自动离线」）
+   - 超过 **Connection Lost Timeout**（预设 30 秒，`connectionLostTimeoutSeconds`）→ `CONNECTION_LOST`
 3. 上面两个都没触发、GPS 还新鲜：
    - 如果这个 Driver 手上有正在进行的 Leg（状态在 `ASSIGNED`/`ACCEPTED`/`DRIVER_ARRIVING`/`PASSENGER_ON_BOARD`/`COMPLETED` 之一，取最近更新的一笔），直接显示那个 Leg 的状态，取代单纯的 `ONLINE`——Admin 一眼就能看到「这个人现在在忙什么」
    - 都没有 → `ONLINE`
@@ -55,7 +55,7 @@ Driver 登入后可以自己 Go Online / Go Offline；上线期间前端每 5 �
 
 ## Frontend
 
-- **Driver**：`DriverLayout` header 常驻一个 Online/Offline 开关（`DriverPresenceToggle`）——切成 Online 后，用 `navigator.geolocation.getCurrentPosition` 立刻上传一次，之后每 5 秒重复；尝试用非标准的 `navigator.getBattery()` 拿电量（大部分现代浏览器已不支持，拿不到就不带这个栏位，不影响上传）。开关状态是从 `/api/driver/presence/me` 读回来的（`status !== "OFFLINE"`），不是纯前端本地状态，重新整理页面也不会跑掉。
+- **Driver**：`DriverLayout` header 常驻一个 Online/Offline 开关（`DriverPresenceToggle`）——切成 Online 后，用 `navigator.geolocation.getCurrentPosition` 立刻上传一次，之后每隔 Company Settings 设定的 GPS Upload Interval 重复；尝试用非标准的 `navigator.getBattery()` 拿电量（大部分现代浏览器已不支持，拿不到就不带这个栏位，不影响上传）。开关状态是从 `/api/driver/presence/me` 读回来的（`status !== "OFFLINE"`），不是纯前端本地状态，重新整理页面也不会跑掉。
 - **Admin**：`/gps` — GPS Live Tracking Dashboard，List View（第一版不做地图），每 5 秒轮询刷新（`refetchInterval`），可切换「只显示 Online」。
 - **Booking Detail**：`LegList` 在 Leg 还有效进行中（`ASSIGNED`/`ACCEPTED`/`DRIVER_ARRIVING`/`PASSENGER_ON_BOARD`）且已指派 Driver 时，显示该 Driver 的即时状态 Tag + 「GPS Updated X sec ago」；Driver 是 `OFFLINE` 时改成醒目的橘色 Alert「该 Driver 目前 Offline」，符合规格「必须明显提示」的要求。
 

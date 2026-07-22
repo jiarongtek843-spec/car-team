@@ -49,6 +49,10 @@ npm run test --workspace=apps/backend
 
 角色权限矩阵详见 [docs/modules/rbac.md](docs/modules/rbac.md)。
 
+## Company Settings
+
+GPS 上传间隔/门槛、Collection 上传档案大小上限、Booking 预设抽成、币别显示等系统参数统一存在 `company_settings` 表，只有 `OWNER` 能改（其他角色可以读）。登入后到 `/company-settings` 查看或调整，详见 [docs/modules/company-settings.md](docs/modules/company-settings.md)。
+
 ## 目录结构
 
 ```

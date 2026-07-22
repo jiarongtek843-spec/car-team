@@ -47,7 +47,7 @@ Admin 没有新增 Collection 的 API——代收款一定是从 Driver 那边�
 
 ## 图片上传
 
-目前没有云端储存，采用最简单可靠的做法：Backend 用 `multer` 存到本地磁盘（`apps/backend/uploads/collections/`），限制 JPEG/PNG/WEBP、单档最大 5MB，透过 `express.static` 在 `/uploads/...` 路径提供读取。
+目前没有云端储存，采用最简单可靠的做法：Backend 用 `multer` 存到本地磁盘（`apps/backend/uploads/collections/`），限制 JPEG/PNG/WEBP、单档最大 Max Upload File Size（预设 5MB，Module 8 起可在 Company Settings 调整，1–20MB；multer 本身另外设了 20MB 的硬上限防滥用，详见 [company-settings.md](company-settings.md)），透过 `express.static` 在 `/uploads/...` 路径提供读取。
 
 **已知限制**：本地磁盘在 Railway 等平台重新部署时会被清空，正式环境部署前需要挂载 persistent volume，或改接 S3 类的对象存储。
 

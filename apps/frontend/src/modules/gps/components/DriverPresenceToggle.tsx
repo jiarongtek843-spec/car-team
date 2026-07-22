@@ -2,8 +2,10 @@ import { useEffect, useRef } from "react";
 import { Space, Switch, Typography, message } from "antd";
 import { useGoOfflineMutation, useGoOnlineMutation, useMyPresenceQuery } from "../hooks";
 import * as gpsApi from "../api";
+import { useCompanySettings } from "../../companySettings/CompanySettingsContext";
 
-const PING_INTERVAL_MS = 5000;
+/** Company Settings 还没加载完成时的保底值，跟 schema 的 gpsUploadIntervalSeconds default 一致。 */
+const DEFAULT_PING_INTERVAL_MS = 5000;
 
 /** 部分浏览器才有的非标准 API，拿不到就算了，不影响上传。 */
 interface BatteryManagerLike {
@@ -56,14 +58,16 @@ export function DriverPresenceToggle() {
   const { data: presence } = useMyPresenceQuery();
   const goOnline = useGoOnlineMutation();
   const goOffline = useGoOfflineMutation();
+  const companySettings = useCompanySettings();
   const intervalRef = useRef<number | null>(null);
 
   const isOnline = presence ? presence.status !== "OFFLINE" : false;
+  const pingIntervalMs = (companySettings?.gpsUploadIntervalSeconds ?? DEFAULT_PING_INTERVAL_MS / 1000) * 1000;
 
   useEffect(() => {
     if (isOnline) {
       sendOnePing();
-      intervalRef.current = window.setInterval(sendOnePing, PING_INTERVAL_MS);
+      intervalRef.current = window.setInterval(sendOnePing, pingIntervalMs);
     }
     return () => {
       if (intervalRef.current !== null) {
@@ -71,7 +75,7 @@ export function DriverPresenceToggle() {
         intervalRef.current = null;
       }
     };
-  }, [isOnline]);
+  }, [isOnline, pingIntervalMs]);
 
   async function handleToggle(checked: boolean) {
     try {

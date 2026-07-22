@@ -22,7 +22,12 @@ const NAV_ITEMS: { key: string; label: ReactNode; permission: PermissionKey }[] 
     permission: PERMISSIONS.SETTLEMENT_READ
   },
   { key: "/collections", label: <Link to="/collections">Collection</Link>, permission: PERMISSIONS.COLLECTION_READ },
-  { key: "/gps", label: <Link to="/gps">GPS</Link>, permission: PERMISSIONS.GPS_READ }
+  { key: "/gps", label: <Link to="/gps">GPS</Link>, permission: PERMISSIONS.GPS_READ },
+  {
+    key: "/company-settings",
+    label: <Link to="/company-settings">Company Settings</Link>,
+    permission: PERMISSIONS.COMPANY_SETTINGS_READ
+  }
 ];
 
 export function AppLayout() {

@@ -1,7 +1,7 @@
 import type { LegStatus, Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { UNFINISHED_LEG_STATUSES } from "../bookings/bookings.status.js";
-import { computePresenceStatus, type DriverPresenceStatus } from "../gps/gps.service.js";
+import { computePresenceStatus, getPresenceThresholds, type DriverPresenceStatus } from "../gps/gps.service.js";
 
 /**
  * Dispatch Center 是纯读取的聚合画面，直接组合既有 Module 的资料（Booking/Leg、Driver、
@@ -137,7 +137,8 @@ export async function listDispatchDrivers({ filter, search }: ListDispatchDriver
   const driverIds = drivers.map((d) => d.id);
   const todayStart = startOfLocalDay(new Date());
 
-  const [workloadGroups, pendingGroups, completedTodayGroups] = await Promise.all([
+  const [thresholds, workloadGroups, pendingGroups, completedTodayGroups] = await Promise.all([
+    getPresenceThresholds(),
     prisma.leg.groupBy({
       by: ["driverId"],
       where: { driverId: { in: driverIds }, status: { in: UNFINISHED_LEG_STATUSES } },
@@ -173,6 +174,8 @@ export async function listDispatchDrivers({ filter, search }: ListDispatchDriver
       onlineSince: driver.onlineSince,
       locationReceivedAt: driver.location?.receivedAt ?? null,
       activeLegStatus: null,
+      connectionLostThresholdSeconds: thresholds.connectionLostThresholdSeconds,
+      autoOfflineThresholdSeconds: thresholds.autoOfflineThresholdSeconds,
       now
     });
 

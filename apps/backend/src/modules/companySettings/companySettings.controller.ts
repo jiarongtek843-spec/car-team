@@ -3,9 +3,32 @@ import { z } from "zod";
 import * as companySettingsService from "./companySettings.service.js";
 import { actorFromRequest, writeAuditLog } from "../../common/audit.js";
 
+const HHMM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 const updateSchema = z.object({
+  // General
+  companyName: z.string().trim().max(200).optional(),
+  timezone: z.string().trim().min(1).max(100).optional(),
+  currency: z.string().trim().min(1).max(10).optional(),
+
+  // Booking
   defaultCommissionType: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]).optional(),
-  defaultCommissionValue: z.coerce.number().int().nonnegative().optional()
+  defaultCommissionValue: z.coerce.number().int().nonnegative().optional(),
+  allowManualLegAllocation: z.boolean().optional(),
+  requireDriverAccept: z.boolean().optional(),
+
+  // GPS
+  gpsUploadIntervalSeconds: z.coerce.number().int().min(1).max(300).optional(),
+  connectionLostTimeoutSeconds: z.coerce.number().int().min(1).max(3600).optional(),
+  offlineTimeoutSeconds: z.coerce.number().int().min(1).max(3600).optional(),
+
+  // Settlement
+  defaultSettlementTime: z.string().regex(HHMM_REGEX, "格式必须是 HH:mm，例如 21:00").optional(),
+  settlementTimezone: z.string().trim().min(1).max(100).optional(),
+
+  // Collection
+  collectionVerificationRequired: z.boolean().optional(),
+  maxUploadFileSizeMb: z.coerce.number().int().min(1).max(20).optional()
 });
 
 export async function get(_req: Request, res: Response) {

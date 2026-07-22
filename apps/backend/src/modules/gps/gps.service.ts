@@ -3,10 +3,15 @@ import { prisma } from "../../config/prisma.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import { ACTIVE_LEG_STATUSES } from "../bookings/bookings.status.js";
+import { getCompanySettings } from "../companySettings/companySettings.service.js";
 
-/** 超过这个秒数没收到新的 GPS 上传，显示 Connection Lost（但还不会自动 Offline）。 */
+/**
+ * 保底默认值，只在 `computePresenceStatus` 没有明确传阈值时使用（例如既有的单元测试）。
+ * Module 8 起，实际跑的阈值来自 CompanySettings（connectionLostTimeoutSeconds/
+ * offlineTimeoutSeconds），listDriverPresence/getDriverPresence/dispatch 的调用处
+ * 都会明确传值，不会依赖这里的默认值——这两个常数只是「读不到设定时」的保险丝。
+ */
 export const CONNECTION_LOST_THRESHOLD_SECONDS = 30;
-/** 超过这个秒数没收到新的 GPS 上传，视为自动 Offline。 */
 export const AUTO_OFFLINE_THRESHOLD_SECONDS = 120;
 
 /**
@@ -32,6 +37,9 @@ interface ComputePresenceInput {
   locationReceivedAt: Date | null;
   activeLegStatus: LegStatus | null;
   now?: Date;
+  /** 不传就退回 CONNECTION_LOST_THRESHOLD_SECONDS/AUTO_OFFLINE_THRESHOLD_SECONDS 这两个保底值。 */
+  connectionLostThresholdSeconds?: number;
+  autoOfflineThresholdSeconds?: number;
 }
 
 interface PresenceResult {
@@ -47,6 +55,8 @@ interface PresenceResult {
  */
 export function computePresenceStatus(input: ComputePresenceInput): PresenceResult {
   const now = input.now ?? new Date();
+  const connectionLostThreshold = input.connectionLostThresholdSeconds ?? CONNECTION_LOST_THRESHOLD_SECONDS;
+  const autoOfflineThreshold = input.autoOfflineThresholdSeconds ?? AUTO_OFFLINE_THRESHOLD_SECONDS;
 
   if (!input.isOnline) {
     return { status: "OFFLINE", secondsSinceUpdate: null };
@@ -57,11 +67,11 @@ export function computePresenceStatus(input: ComputePresenceInput): PresenceResu
     ? Math.max(0, Math.floor((now.getTime() - referenceTime.getTime()) / 1000))
     : null;
 
-  if (secondsSinceUpdate !== null && secondsSinceUpdate > AUTO_OFFLINE_THRESHOLD_SECONDS) {
+  if (secondsSinceUpdate !== null && secondsSinceUpdate > autoOfflineThreshold) {
     return { status: "OFFLINE", secondsSinceUpdate };
   }
 
-  if (secondsSinceUpdate !== null && secondsSinceUpdate > CONNECTION_LOST_THRESHOLD_SECONDS) {
+  if (secondsSinceUpdate !== null && secondsSinceUpdate > connectionLostThreshold) {
     return { status: "CONNECTION_LOST", secondsSinceUpdate };
   }
 
@@ -188,14 +198,17 @@ function toPresencePayload(
     receivedAt: Date;
   } | null,
   activeLeg: { id: number; bookingId: number; sequence: number; status: LegStatus; booking: { girlName: string } } | null,
-  now: Date
+  now: Date,
+  thresholds: { connectionLostThresholdSeconds: number; autoOfflineThresholdSeconds: number }
 ) {
   const { status, secondsSinceUpdate } = computePresenceStatus({
     isOnline: driver.isOnline,
     onlineSince: driver.onlineSince,
     locationReceivedAt: location?.receivedAt ?? null,
     activeLegStatus: activeLeg?.status ?? null,
-    now
+    now,
+    connectionLostThresholdSeconds: thresholds.connectionLostThresholdSeconds,
+    autoOfflineThresholdSeconds: thresholds.autoOfflineThresholdSeconds
   });
 
   return {
@@ -234,8 +247,18 @@ async function selfHealStaleOnlineDrivers(driverIds: number[]) {
   });
 }
 
+/** 供 gps.service.ts 自己跟 dispatch.service.ts 共用，统一从 CompanySettings 读 presence 阈值。 */
+export async function getPresenceThresholds() {
+  const settings = await getCompanySettings();
+  return {
+    connectionLostThresholdSeconds: settings.connectionLostTimeoutSeconds,
+    autoOfflineThresholdSeconds: settings.offlineTimeoutSeconds
+  };
+}
+
 export async function listDriverPresence(onlineOnly: boolean) {
   const now = new Date();
+  const thresholds = await getPresenceThresholds();
 
   const drivers = await prisma.driver.findMany({
     where: { status: "ACTIVE" },
@@ -255,7 +278,7 @@ export async function listDriverPresence(onlineOnly: boolean) {
   }
 
   const results = drivers.map((driver) =>
-    toPresencePayload(driver, driver.location, latestActiveLegByDriver.get(driver.id) ?? null, now)
+    toPresencePayload(driver, driver.location, latestActiveLegByDriver.get(driver.id) ?? null, now, thresholds)
   );
 
   const staleOnlineDriverIds = results.filter((r) => r.status === "OFFLINE").map((r) => r.driver.id);
@@ -269,6 +292,7 @@ export async function listDriverPresence(onlineOnly: boolean) {
 
 export async function getDriverPresence(driverId: number) {
   const now = new Date();
+  const thresholds = await getPresenceThresholds();
 
   const driver = await prisma.driver.findUnique({
     where: { id: driverId },
@@ -284,7 +308,7 @@ export async function getDriverPresence(driverId: number) {
     orderBy: { updatedAt: "desc" }
   });
 
-  const payload = toPresencePayload(driver, driver.location, activeLeg, now);
+  const payload = toPresencePayload(driver, driver.location, activeLeg, now, thresholds);
 
   if (payload.status === "OFFLINE" && driver.isOnline) {
     await selfHealStaleOnlineDrivers([driver.id]);

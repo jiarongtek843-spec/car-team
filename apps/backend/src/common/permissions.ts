@@ -60,25 +60,30 @@ const ADMIN_SIDE_PERMISSIONS: PermissionKey[] = [
   PERMISSIONS.COMPANY_SETTINGS_WRITE
 ];
 
-/** 迁移/seed 用的初始角色→权限对照表，见 docs/modules/rbac.md 的权限矩阵。 */
+/**
+ * 迁移/seed 用的初始角色→权限对照表，见 docs/modules/rbac.md 的权限矩阵。
+ * Module 8 起，companySettings:read 开放给全部 4 个角色（只有 write 仍然是 OWNER only）——
+ * Company Settings 的 General 分类（公司名称/时区/币别）跟 Driver 端要用到的 GPS 上传间隔
+ * 之类的设定，Manager/Dispatcher/Driver 都需要能读到，只是不能改。
+ */
 export const DEFAULT_ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]> = {
   OWNER: ADMIN_SIDE_PERMISSIONS,
-  MANAGER: ADMIN_SIDE_PERMISSIONS.filter(
-    (p) => p !== PERMISSIONS.COMPANY_SETTINGS_READ && p !== PERMISSIONS.COMPANY_SETTINGS_WRITE
-  ),
+  MANAGER: ADMIN_SIDE_PERMISSIONS.filter((p) => p !== PERMISSIONS.COMPANY_SETTINGS_WRITE),
   DISPATCHER: [
     PERMISSIONS.BOOKING_READ,
     PERMISSIONS.BOOKING_WRITE,
     PERMISSIONS.DRIVER_READ,
     PERMISSIONS.DISPATCH_READ,
-    PERMISSIONS.GPS_READ
+    PERMISSIONS.GPS_READ,
+    PERMISSIONS.COMPANY_SETTINGS_READ
   ],
   DRIVER: [
     PERMISSIONS.DRIVER_JOBS_SELF,
     PERMISSIONS.DRIVER_WALLET_SELF,
     PERMISSIONS.DRIVER_COLLECTION_SELF,
     PERMISSIONS.DRIVER_PRESENCE_SELF,
-    PERMISSIONS.DRIVER_SETTLEMENT_SELF
+    PERMISSIONS.DRIVER_SETTLEMENT_SELF,
+    PERMISSIONS.COMPANY_SETTINGS_READ
   ]
 };
 

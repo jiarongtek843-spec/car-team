@@ -16,7 +16,7 @@
 | 角色 | 说明 |
 |---|---|
 | `OWNER` | 公司负责人，拥有所有权限，包含 Company Settings/Commission 设定 |
-| `MANAGER` | 日常车队营运：Booking、Driver、Dispatch、GPS、Wallet、Collection、Settlement，不含 Company Settings |
+| `MANAGER` | 日常车队营运：Booking、Driver、Dispatch、GPS、Wallet、Collection、Settlement；Company Settings 只能看不能改 |
 | `DISPATCHER` | 派车专员：Booking、Dispatch Center、查看 Driver 与 GPS，不能碰 Wallet/Settlement/Collection/Commission |
 | `DRIVER` | 司机，只能查看/操作自己的工作、GPS、收入、代收款、结算纪录 |
 
@@ -34,8 +34,11 @@
 | `wallet:read` / `wallet:write` | ✅ | ✅ | ❌ | — |
 | `settlement:read` / `settlement:write` | ✅ | ✅ | ❌ | — |
 | `collection:read` / `collection:write` | ✅ | ✅ | ❌ | — |
-| `companySettings:read` / `companySettings:write` | ✅ | ❌ | ❌ | — |
+| `companySettings:read` | ✅ | ✅ | ✅ | ✅ |
+| `companySettings:write` | ✅ | ❌ | ❌ | ❌ |
 | `driverJobs:self` / `driverWallet:self` / `driverCollection:self` / `driverPresence:self` / `driverSettlement:self` | — | — | — | ✅ |
+
+> **Module 8 更新**：`companySettings:read` 从「只有 OWNER」放宽成「全部 4 个角色都能读」——Company Settings 的 General 分类（公司名称/时区/币别）跟 GPS 上传间隔这类前端要用到的设定，Manager/Dispatcher/Driver 都需要能读到才能正常显示，只是仍然不能改。`companySettings:write` 维持 OWNER only，详见 [company-settings.md](company-settings.md)。
 
 **关键设计**：Dispatch Center 的 Quick Assign/Reassign 走的是 `bookings.routes.ts` 底下既有的 assign 端点（见 [dispatch-center.md](dispatch-center.md)），所以归在 `booking:write`，不是独立的 `dispatch:write`——这是 Dispatcher 需要 `booking:write` 而不是只有 `booking:read` 的原因。Dispatch Center 自己的三支 API（waiting-bookings/drivers/statistics）纯读取聚合，只需要 `dispatch:read`。
 

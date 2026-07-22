@@ -17,14 +17,14 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(owner).toContain(PERMISSIONS.COLLECTION_WRITE);
   });
 
-  it("MANAGER has all day-to-day operations but not Company Settings", () => {
+  it("MANAGER has all day-to-day operations including Booking Charge Void, can read but not write Company Settings", () => {
     const manager = DEFAULT_ROLE_PERMISSIONS.MANAGER;
     expect(manager).toContain(PERMISSIONS.BOOKING_WRITE);
     expect(manager).toContain(PERMISSIONS.DRIVER_WRITE);
     expect(manager).toContain(PERMISSIONS.WALLET_WRITE);
     expect(manager).toContain(PERMISSIONS.SETTLEMENT_WRITE);
     expect(manager).toContain(PERMISSIONS.COLLECTION_WRITE);
-    expect(manager).not.toContain(PERMISSIONS.COMPANY_SETTINGS_READ);
+    expect(manager).toContain(PERMISSIONS.COMPANY_SETTINGS_READ);
     expect(manager).not.toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
   });
 
@@ -35,6 +35,7 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(dispatcher).toContain(PERMISSIONS.DRIVER_READ);
     expect(dispatcher).toContain(PERMISSIONS.DISPATCH_READ);
     expect(dispatcher).toContain(PERMISSIONS.GPS_READ);
+    expect(dispatcher).toContain(PERMISSIONS.COMPANY_SETTINGS_READ);
 
     expect(dispatcher).not.toContain(PERMISSIONS.DRIVER_WRITE);
     expect(dispatcher).not.toContain(PERMISSIONS.WALLET_READ);
@@ -43,11 +44,10 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(dispatcher).not.toContain(PERMISSIONS.SETTLEMENT_WRITE);
     expect(dispatcher).not.toContain(PERMISSIONS.COLLECTION_READ);
     expect(dispatcher).not.toContain(PERMISSIONS.COLLECTION_WRITE);
-    expect(dispatcher).not.toContain(PERMISSIONS.COMPANY_SETTINGS_READ);
     expect(dispatcher).not.toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
   });
 
-  it("DRIVER only has self-service permissions, never the admin-side driver:* keys", () => {
+  it("DRIVER only has self-service permissions plus companySettings:read, never the admin-side driver:* keys", () => {
     const driver = DEFAULT_ROLE_PERMISSIONS.DRIVER;
     expect(driver.sort()).toEqual(
       [
@@ -55,10 +55,12 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
         PERMISSIONS.DRIVER_WALLET_SELF,
         PERMISSIONS.DRIVER_COLLECTION_SELF,
         PERMISSIONS.DRIVER_PRESENCE_SELF,
-        PERMISSIONS.DRIVER_SETTLEMENT_SELF
+        PERMISSIONS.DRIVER_SETTLEMENT_SELF,
+        PERMISSIONS.COMPANY_SETTINGS_READ
       ].sort()
     );
     expect(driver).not.toContain(PERMISSIONS.DRIVER_READ);
     expect(driver).not.toContain(PERMISSIONS.DRIVER_WRITE);
+    expect(driver).not.toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
   });
 });

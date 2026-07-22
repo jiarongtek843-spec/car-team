@@ -18,6 +18,7 @@ import { AdminCollectionPage } from "./modules/collections/AdminCollectionPage";
 import { DriverCollectionPage } from "./modules/collections/DriverCollectionPage";
 import { AdminGpsDashboardPage } from "./modules/gps/AdminGpsDashboardPage";
 import { DispatchCenterPage } from "./modules/dispatch/DispatchCenterPage";
+import { CompanySettingsPage } from "./modules/companySettings/CompanySettingsPage";
 import { PERMISSIONS } from "./common/permissions";
 
 function App() {
@@ -101,6 +102,14 @@ function App() {
           element={
             <RequirePermission permission={PERMISSIONS.GPS_READ}>
               <AdminGpsDashboardPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/company-settings"
+          element={
+            <RequirePermission permission={PERMISSIONS.COMPANY_SETTINGS_READ}>
+              <CompanySettingsPage />
             </RequirePermission>
           }
         />

@@ -3,6 +3,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import multer from "multer";
 import { ValidationError } from "./errors.js";
+import { getCompanySettings } from "../modules/companySettings/companySettings.service.js";
+import { asyncHandler } from "./asyncHandler.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,7 +31,11 @@ const MAGIC_NUMBERS: { mime: string; bytes: number[] }[] = [
   { mime: "image/webp", bytes: [0x52, 0x49, 0x46, 0x46] } // "RIFF"，WebP 在第 8 字节才是 "WEBP"，这里先用前缀粗筛
 ];
 
-const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+// multer 的 `limits.fileSize` 是在 router 注册时（模块载入时）就固定死的，没办法每个请求
+// 动态读一次 DB。这里刻意设成「硬上限」（跟 companySettings.controller.ts 的 zod 校验
+// maxUploadFileSizeMb 上限 20MB 一致），真正生效的、可从 Company Settings 调整的限制在
+// 档案落盘、算完 magic number 之后另外检查一次（见 collectionProofUpload 的第二个 middleware）。
+const HARD_CEILING_FILE_SIZE_BYTES = 20 * 1024 * 1024;
 
 function matchesMagicNumber(buffer: Buffer, mimetype: string): boolean {
   const entry = MAGIC_NUMBERS.find((m) => m.mime === mimetype);
@@ -53,7 +59,7 @@ function createImageUpload(subfolder: string) {
 
   const upload = multer({
     storage,
-    limits: { fileSize: MAX_FILE_SIZE_BYTES },
+    limits: { fileSize: HARD_CEILING_FILE_SIZE_BYTES },
     fileFilter: (_req, file, cb) => {
       if (!(file.mimetype in ALLOWED_MIME_TYPES)) {
         cb(new ValidationError("只允许上传 JPEG/PNG/WEBP 格式的图片"));
@@ -76,13 +82,22 @@ const { upload: collectionProofUploadRaw, dir: collectionProofDir } = createImag
 export function collectionProofUpload() {
   return [
     collectionProofUploadRaw.single("file"),
-    (req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) => {
+    asyncHandler(async (req, res, next) => {
       if (!req.file) {
         next();
         return;
       }
 
       const filePath = path.join(collectionProofDir, req.file.filename);
+
+      const settings = await getCompanySettings();
+      const configuredMaxBytes = settings.maxUploadFileSizeMb * 1024 * 1024;
+      if (req.file.size > configuredMaxBytes) {
+        fs.unlinkSync(filePath);
+        next(new ValidationError(`档案大小不能超过 ${settings.maxUploadFileSizeMb}MB`));
+        return;
+      }
+
       const handle = fs.openSync(filePath, "r");
       const header = Buffer.alloc(12);
       fs.readSync(handle, header, 0, 12, 0);
@@ -95,7 +110,7 @@ export function collectionProofUpload() {
       }
 
       next();
-    }
+    })
   ];
 }
 

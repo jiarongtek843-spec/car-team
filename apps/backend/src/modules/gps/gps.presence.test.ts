@@ -108,4 +108,32 @@ describe("computePresenceStatus", () => {
     });
     expect(result.status).toBe("OFFLINE");
   });
+
+  it("Module 8: respects a custom connectionLostThresholdSeconds passed from CompanySettings instead of the default 30s", () => {
+    // 15 秒前的定位，用默认 30 秒门槛还算新鲜，但用 CompanySettings 设定的 10 秒门槛就该算 Connection Lost。
+    const result = computePresenceStatus({
+      isOnline: true,
+      onlineSince: secondsAgo(600),
+      locationReceivedAt: secondsAgo(15),
+      activeLegStatus: null,
+      now: NOW,
+      connectionLostThresholdSeconds: 10,
+      autoOfflineThresholdSeconds: AUTO_OFFLINE_THRESHOLD_SECONDS
+    });
+    expect(result.status).toBe("CONNECTION_LOST");
+  });
+
+  it("Module 8: respects a custom autoOfflineThresholdSeconds passed from CompanySettings instead of the default 120s", () => {
+    // 50 秒前的定位，用默认 120 秒门槛还在线，但用 CompanySettings 设定的 45 秒门槛就该自动 Offline。
+    const result = computePresenceStatus({
+      isOnline: true,
+      onlineSince: secondsAgo(600),
+      locationReceivedAt: secondsAgo(50),
+      activeLegStatus: null,
+      now: NOW,
+      connectionLostThresholdSeconds: CONNECTION_LOST_THRESHOLD_SECONDS,
+      autoOfflineThresholdSeconds: 45
+    });
+    expect(result.status).toBe("OFFLINE");
+  });
 });
