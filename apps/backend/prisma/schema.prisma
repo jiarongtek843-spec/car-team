@@ -102,6 +102,22 @@ enum CollectionStatus {
   VOIDED
 }
 
+// Module 13（Collection Ledger Schema）：谁实际持有这笔钱，跟 CollectionPaymentMethod（怎么付）
+// 是刻意分开的两个维度，见 docs/design/collection-module-v1.md 第 7/8 章。第一版只支持
+// DRIVER/COMPANY，THIRD_PARTY 留待真正有第三方代收需求时再启用（加值不需要重新设计栏位）。
+enum CollectedBy {
+  DRIVER
+  COMPANY
+}
+
+// collectedBy 回答「谁的角色收的」，receiverType 回答「receiverId 指向哪一种实体」——v1 两者
+// 取值刚好一一对应（用 DB CHECK constraint 保证不会不小心兜不起来，见 migration.sql），
+// 分成两个栏位是为了未来两者有可能分歧时不需要再动一次 Schema。
+enum CollectionReceiverType {
+  DRIVER
+  COMPANY
+}
+
 // Module 9（Financial Model v2）：Booking 的财务状态，跟营运面 BookingStatus 并行，
 // 同样是派生值，不能手动设定。见 docs/design/financial-model-v2.md 第 3 章。
 enum BookingFinancialStatus {
@@ -647,8 +663,11 @@ model Settlement {
   @@map("settlements")
 }
 
-// Collection Ledger：Driver 暂时替公司保管的钱（顾客代收/代付），跟 Wallet（公司欠 Driver 的钱）
-// 是两本完全独立的帐，永远不会互相直接修改对方栏位。日结时两本帐才会一起被算成 Net Settlement。
+// Collection Ledger：Driver/Company 暂时／直接持有的、属于公司的钱（顾客代收/代付），跟 Wallet
+// （公司欠 Driver 的钱）是两本完全独立的帐，永远不会互相直接修改对方栏位。日结时两本帐才会一起
+// 被算成 Net Settlement。三本 Ledger 各自回答一个问题，见 docs/design/collection-module-v1.md：
+// Collection 回答「谁收了多少钱」、Wallet 回答「公司欠司机多少钱」、Settlement 回答「最后谁应该
+// 给谁多少钱」。
 model Collection {
   id Int @id @default(autoincrement())
 
@@ -656,8 +675,35 @@ model Collection {
   booking   Booking @relation(fields: [bookingId], references: [id])
   legId     Int?    @map("leg_id")
   leg       Leg?    @relation(fields: [legId], references: [id])
-  driverId  Int     @map("driver_id")
-  driver    Driver  @relation(fields: [driverId], references: [id])
+
+  // Collected By = DRIVER 时必须有 Driver（见下方 CHECK constraint，migration.sql）；
+  // Collected By = COMPANY 时可以留空，也可以保留（純粹记录这笔钱归属于哪个 Driver 的哪趟
+  // 行程，方便对账），但不构成该 Driver 的 Settlement 负债——那笔过滤逻辑留给 Settlement
+  // Module 处理，这次 Schema 阶段不动 Settlement 查询。onDelete 明确写成 Restrict（不是
+  // Prisma 对 optional 关联的默认值 SetNull）：跟 WalletTransaction/TripExpense 这两本
+  // 姊妹 Ledger 的 driver 关联行为保持一致——只要 Driver 还有 Collection 记录（不管
+  // driverId 是不是唯一意义上的负债主体），就不能被物理删除，financial ledger 的可追溯性
+  // 优先于「可以删除」的方便性。
+  driverId Int?    @map("driver_id")
+  driver   Driver? @relation(fields: [driverId], references: [id], onDelete: Restrict)
+
+  // 谁的角色收的钱，跟 paymentMethod（怎么付）是刻意分开的两个独立维度，不合并成
+  // TRANSFER_TO_DRIVER/TRANSFER_TO_COMPANY 这种揉在一起的写法（见 collection-module-v1.md 第 7 章）。
+  // 沿用既有资料的既有流程全部是 Driver 代收，所以给 DRIVER 默认值，现有 create 呼叫不用改。
+  collectedBy CollectedBy @default(DRIVER) @map("collected_by")
+
+  // Receiver：Collected By 底下更精确的收款主体（collection-module-v1.md 第 8.3 节）。
+  // receiverType=DRIVER 时 receiverId 就是 driverId（同一个实体，不是新概念）；
+  // receiverType=COMPANY 时目前没有结构化的「公司收款账户」资料表，receiverId 先留空，
+  // receiverLabel 存自由文本（例如 "Company Account A"）——是否要做成结构化清单是尚未
+  // 决定的业务规则（collection-module-v1.md 第 12 章问题 1），这次只先把栏位留出来。
+  // 这两个栏位目前没有 API 会写入（现有 Collection API 没有改动，见本次 Migration 的
+  // 已知限制），只是 Schema 先备妥，实际赋值留给下一阶段的 Collection API。receiverType
+  // 跟 collectedBy 一样给 DRIVER 默认值——v1 两者一一对应（DB CHECK constraint 保证），
+  // 分成两个栏位纯粹是为了未来两者有可能分歧时不需要再动一次 Schema。
+  receiverType  CollectionReceiverType @default(DRIVER) @map("receiver_type")
+  receiverId    Int?                   @map("receiver_id")
+  receiverLabel String?                @map("receiver_label")
 
   customerName  String?                 @map("customer_name")
   purpose       CollectionPurpose
@@ -673,6 +719,10 @@ model Collection {
   // Partial Collection（分次收款）：第一笔（parentCollectionId=null）带 expectedAmountCents
   // 当作这一组的应收总额；之后每一次实际收到钱都是新增一笔独立记录，parentCollectionId
   // 指回第一笔。Received/Outstanding 都是衍生计算，不存 DB（见 financial-model-v2.md 第 6 章）。
+  // 「同一组子记录 collectedAmount 总额不能超过 expectedAmount」是跨行加总规则，Postgres
+  // CHECK constraint 做不到跨行验证，这次 Schema 阶段不做 Trigger，留给 API 阶段做 Service
+  // 层验证（跟专案其他业务规则一致的做法，例如 Revenue Sharing/BookingCharge 都是 Service
+  // 层验证，不是 DB Trigger）。
   expectedAmountCents Int?         @map("expected_amount_cents")
   parentCollectionId  Int?         @map("parent_collection_id")
   parentCollection    Collection?  @relation("CollectionPartialPayments", fields: [parentCollectionId], references: [id], onDelete: Restrict)
@@ -684,6 +734,7 @@ model Collection {
   proofImageUrl String? @map("proof_image_url")
 
   createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
   createdBy     Int?     @map("created_by")
   createdByUser User?    @relation("CollectionCreatedBy", fields: [createdBy], references: [id])
 
@@ -702,6 +753,11 @@ model Collection {
 
   @@index([relatedChargeId])
   @@index([parentCollectionId])
+  @@index([driverId, status, collectedAt])
+  @@index([bookingId])
+  @@index([status])
+  @@index([collectedBy])
+  @@index([receiverType, receiverId])
   @@map("collections")
 }
 
