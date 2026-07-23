@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Input, Select, Space, Table, Typography } from "antd";
+import { SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useBookingsQuery } from "./hooks";
 import { BookingStatusTag } from "./components/StatusTags";
@@ -28,9 +29,15 @@ export function BookingListPage() {
   const isMobile = useIsMobile();
   const [status, setStatus] = useState<BookingStatus | undefined>(undefined);
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const pageSize = 20;
+
+  function runSearch() {
+    setSearch(searchInput.trim());
+    setPage(1);
+  }
 
   const { data, isLoading } = useBookingsQuery({ status, search: search || undefined, page, pageSize });
 
@@ -66,28 +73,58 @@ export function BookingListPage() {
         </Button>
       </Space>
 
-      <Space style={{ marginBottom: 16, width: "100%" }} wrap>
-        <Select
-          allowClear
-          placeholder="筛选状态"
-          style={{ width: isMobile ? "100%" : 160, minWidth: 160 }}
-          options={STATUS_OPTIONS}
-          value={status}
-          onChange={(value) => {
-            setStatus(value);
-            setPage(1);
-          }}
-        />
-        <Input.Search
-          placeholder="搜索 Girl 姓名"
-          style={{ width: isMobile ? "100%" : 240, minWidth: 200 }}
-          allowClear
-          onSearch={(value) => {
-            setSearch(value);
-            setPage(1);
-          }}
-        />
-      </Space>
+      {isMobile ? (
+        // 手机版：Status Filter / Girl 姓名输入框 / 搜索按钮各占一整行，
+        // 不用 Input.Search 内建的紧凑搜索按钮——那个按钮宽度固定，在窄屏下
+        // 会把输入框挤得很窄，跟这次要修的 Bug 是同一个问题。
+        <Space direction="vertical" size={8} style={{ marginBottom: 16, width: "100%" }}>
+          <Select
+            allowClear
+            placeholder="筛选状态"
+            style={{ width: "100%" }}
+            options={STATUS_OPTIONS}
+            value={status}
+            onChange={(value) => {
+              setStatus(value);
+              setPage(1);
+            }}
+          />
+          <Input
+            placeholder="搜索 Girl 姓名"
+            style={{ width: "100%" }}
+            allowClear
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onPressEnter={runSearch}
+          />
+          <Button type="primary" icon={<SearchOutlined />} block style={{ height: 44 }} onClick={runSearch}>
+            搜索
+          </Button>
+        </Space>
+      ) : (
+        <Space style={{ marginBottom: 16, width: "100%" }} wrap>
+          <Select
+            allowClear
+            placeholder="筛选状态"
+            style={{ width: 160, minWidth: 160 }}
+            options={STATUS_OPTIONS}
+            value={status}
+            onChange={(value) => {
+              setStatus(value);
+              setPage(1);
+            }}
+          />
+          <Input.Search
+            placeholder="搜索 Girl 姓名"
+            style={{ width: 240, minWidth: 200 }}
+            allowClear
+            onSearch={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+          />
+        </Space>
+      )}
 
       {isMobile ? (
         <MobileCardList
