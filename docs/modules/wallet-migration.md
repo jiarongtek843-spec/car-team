@@ -3,6 +3,8 @@
 > 承接 [revenue-sharing-api.md](./revenue-sharing-api.md)（Revenue Sharing Preview/Finalize/Snapshot）。这次把 Finalize 算出来的 `driverPoolCents` 正式写进 Driver Wallet。不要开始 Settlement/Trip Expense/Collection，也没有 Frontend。
 >
 > **业务流程调整**：最初设计是 Finalize（建立 Snapshot）→ Issue Wallet（手动发放）两个步骤；后来简化成 **Finalize 一步完成**——Finalize 本身就代表财务确认，分两步只会增加漏发、重复操作的风险。没有独立的 Issue Wallet 端点。未来如果需要审批流程，预期会是 `Preview → Approve → Finalize`（自动 Issue Wallet）三步，`Approve` 是新增的独立步骤，不是把 Issue Wallet 拆回来——这次不实作 `Approve`。
+>
+> **2026-07 修正（driver-earnings-after-leg-completion）**：Finalize 本身在这之后实际上从来没有被呼叫过——前端从未做过任何 Finalize 的 UI（按钮/页面），导致所有 V2 Booking 的司机收入永远不会产生（Railway Staging 实测发现）。修正为**自动触发**：Booking 第一条 Leg 完成时，`completeLeg` 自动执行等同 Finalize 的逻辑；之后每条 Leg 各自完成时立刻拿到自己那一份，不需要等整张 Booking 全部完成。手动 Finalize 端点保留（给完全没有 Leg 的 Booking 或需要提前锁定财务数字的情境用），但实务上已经不是 V2 收入产生的唯一路径。详见下方「自动触发」章节，这一段之后的内容多处已经过时，以该章节为准。
 
 ## Financial Version Cut-over
 
@@ -13,7 +15,7 @@
 `bookings.financial_version`（枚举 `FinancialVersion { V1, V2 }`）：
 
 - **V1**：这次 migration（[`20260810000000_wallet_migration_financial_version`](../../apps/backend/prisma/migrations/20260810000000_wallet_migration_financial_version/migration.sql)）部署**之前**就存在的所有 Booking，被这个 migration 自动回填成 V1。继续使用既有的 `LEG_EARNING` 机制；**不参与 Revenue Sharing Wallet**——Finalize 仍然可以对 V1 Booking 执行（建立 Snapshot，纯计算/报表用途），但不会发放任何 Wallet Transaction。
-- **V2**：migration 部署**之后**新建立的 Booking，DB 栏位默认值就是 V2（不需要应用层判断「现在有没有过 Cut-over 时间点」）。Leg 完成时完全不建立 `LEG_EARNING`；Finalize 成功的同一个 Transaction 里会自动把 `driverPoolCents` 发放成 Wallet Transaction。
+- **V2**：migration 部署**之后**新建立的 Booking，DB 栏位默认值就是 V2（不需要应用层判断「现在有没有过 Cut-over 时间点」）。Leg 完成时完全不建立 `LEG_EARNING`；改为呼叫 `payoutForCompletedLeg`（见「自动触发」章节），效果等同 Finalize，但触发来源是 Leg 完成而不是手动 API 呼叫。
 
 ### 两段式 DEFAULT 达成 Cut-over
 
@@ -34,11 +36,34 @@ const booking = await tx.booking.findUniqueOrThrow({
 });
 if (booking.financialVersion === "V1") {
   await createLegEarning(tx, updatedLeg, actor);
+} else {
+  await payoutForCompletedLeg(tx, { bookingId: updatedLeg.bookingId, legId: updatedLeg.id }, actor);
 }
-// V2：完全不记账，收入交给 Revenue Sharing Finalize 自动处理。
 ```
 
-这是唯一改动的既有代码——`completeLeg` 本身的状态机、`LEG_EARNING` 的建立逻辑（`createLegEarning`）一行都没动，只是多了一个版本判断。
+`completeLeg` 本身的状态机、`LEG_EARNING` 的建立逻辑（`createLegEarning`）都没动，V1 分支完全不变；V2 分支从「什么都不做」改成呼叫 `payoutForCompletedLeg`（见下方「自动触发」章节）。
+
+## 自动触发（2026-07 修正：driver-earnings-after-leg-completion）
+
+### 根本原因
+
+Finalize（连带它自动发放的 Wallet）设计成必须由 Owner/Manager 手动呼叫 API 才会执行，但前端从来没有做过任何 Finalize 的 UI——没有按钮、没有页面。结果是从这个 Module 上线开始，**所有 Financial V2 的 Booking 收入永远不会产生**：Leg 可以正常 Accept/Complete，Booking 状态正常推进，但 Wallet 完全是空的。这个断点在 Railway Staging 的实际手动测试中被发现（本地 `curl`/自动化测试从来不会踩到，因为测试直接呼叫 `revenueSharingService.finalizeRevenueSharing()`，跳过了前端根本没有入口这件事）。
+
+另一个独立的断点：`allocateDriverPool` 是按每条 Leg 的 `earningAllocationCents`（司机收入，RM）加权分配，但这个欄位在 Dispatch Center 的「指派司机」（Quick Assign）流程完全不会出现——它只存在于 Add Leg / Edit Allocation 这两个较少使用的独立表单里。实务上几乎不会有人去填，导致就算 Finalize 真的被呼叫，`allocateDriverPool` 也会因为「所有 Leg 权重都是 0」而回传空阵列，一毛钱都分不出去。
+
+### 修正设计
+
+1. **触发点从「手动呼叫 Finalize API」改成「Booking 第一条 Leg 完成」**：`driverJobs.service.ts` 的 `completeLeg`（V2 分支）直接呼叫 `revenueSharing.service.ts` 新增的 `payoutForCompletedLeg`，在同一个 DB Transaction 里完成。这条 Booking 还没有 Snapshot 时，当场建立（`RevenueSharingSnapshot.triggeredBy = "LEG_COMPLETED"`，Company/Dispatcher Commission 与 `driverPoolCents` 从此定案，`Booking.financialStatus` 收敛成 `FINALIZED`，效果跟手动 Finalize 完全一样）；已经有 Snapshot 时直接重用。
+2. **每条 Leg 只在自己完成的当下拿到自己那一份**：分配比例在 Snapshot 建立当下就用「当下所有合格 Leg」算好一次（`allocateDriverPool` 本身完全没改），只是实际发放逐条进行——不需要等整张 Booking 全部完成，也不影响还没完成的其他 Leg。
+3. **没有人手动填司机收入时，视为均分**：`buildAllocationWeights` 这个新的权重准备函式，在「这张 Booking 底下所有合格 Leg 都没有人手动填过司机收入」时，把每条 Leg 的权重视为相等（单一 Leg 因此拿到 100%）；只要「有任何一条」被手动填过，完全照旧维持原本「按填写的 cents 数字加权」的规则。`allocateDriverPool` 这个纯函数本身没有被修改，改动的只是喂给它的输入。
+4. **手动 Finalize 端点保留**，行为不变（仍然可以对完全没有 Leg 的 Booking、或需要提前锁定数字的场景使用），只是内部改为共用 `loadEligibleLegsForAllocation`/`buildAllocationWeights` 这两个抽出来的 helper。
+5. **失败即整个回滚，不静默产生错误金额**：Booking 还没有任何 Charge、或 Booking Total 跟 Charge 实际加总对不上、或 Company/Dispatcher Commission 设定不合理（加总超过 100%）时，`payoutForCompletedLeg` 会抛出 `ValidationError`，整个 `completeLeg` Transaction 一起回滚——Leg 也不会被标记 `COMPLETED`。算不出该发多少钱，就不能假装这段行程完成了。
+6. **幂等性**：`applyLegTransition` 的条件式 update（WHERE 状态在期望范围内）加上既有的 `@@unique([legId, transactionType])`，双重保证同一条 Leg 不会被发放两次；`RevenueSharingSnapshot.bookingId` 的唯一约束保证同一张 Booking 不会建立第二笔 Snapshot（第二条 Leg 完成时会重用第一条 Leg 完成当下建立的那一笔）。
+7. **Settlement 报表分类修正**：`settlement.service.ts` 的 `summarizeWallet` 原本只把 `LEG_EARNING` 归类成「已完成行程收入」，`REVENUE_SHARE_PAYOUT` 会落到 Adjustment 的桶——金额加总本来就正确（不影响实际结算金额），只是分类标签错误；这次一并把 `REVENUE_SHARE_PAYOUT` 也归进「已完成行程收入」。
+
+### Schema 变动
+
+`RevenueSnapshotTrigger` enum 新增一个值 `LEG_COMPLETED`（[migration](../../apps/backend/prisma/migrations/20260814000000_leg_completion_revenue_trigger/migration.sql)，纯粹新增 enum 值，不影响任何既有资料），用来在 Snapshot 上区分「Owner/Manager 手动 Finalize」跟「Leg 完成自动触发」两种来源，供审计/除错使用。
 
 ## Wallet Transaction Source
 
@@ -180,16 +205,18 @@ function assertCanFinalize(actor: AuditActor, settings: { allowManagerFinalizeRe
 ## 测试
 
 - [`revenueSharing.calculator.test.ts`](../../apps/backend/src/modules/revenueSharing/revenueSharing.calculator.test.ts)（Unit Test）：`allocateDriverPool` 的 7 个测试——单 Leg 全拿、等权重平分、不等权重按比例、四舍五入余数正确分给最后一笔（总和精确）、没有 Leg/权重全 0 回传空阵列、`driverPoolCents=0` 时每笔金额是 0 但仍然回传每个 Leg。
-- [`revenueSharing.wallet.integration.test.ts`](../../apps/backend/src/modules/revenueSharing/revenueSharing.wallet.integration.test.ts)（Integration + Permission + Duplicate Protection Test）：20 个测试，涵盖 Financial Version Cut-over 的实际行为（V1 继续 `LEG_EARNING`、V2 完全不建立）、Finalize 自动发放 Wallet 的单 Leg/多 Leg 分配、已取消 Leg 不参与、V1 Finalize 不发 Wallet、重复 Finalize 的拒绝、DB 唯一约束的 Duplicate Protection、`allowManagerFinalizeRevenueSharing` 开关的 3 种情境（默认关闭 MANAGER 被拒/开启后 MANAGER 可以/OWNER 永远不受影响）、Wallet Detail/Driver Wallet/Wallet History 三个查询、既有 Driver 自助端点自然带出新交易类型、Booking Total 不一致时整个中止。
+- [`revenueSharing.wallet.integration.test.ts`](../../apps/backend/src/modules/revenueSharing/revenueSharing.wallet.integration.test.ts)（Integration + Permission + Duplicate Protection Test）：29 个测试，涵盖 Financial Version Cut-over 的实际行为（V1 继续 `LEG_EARNING`、V2 改为自动产生 `REVENUE_SHARE_PAYOUT`）、Finalize 自动发放 Wallet 的单 Leg/多 Leg 分配、已取消 Leg 不参与、V1 Finalize 不发 Wallet、重复 Finalize 的拒绝、DB 唯一约束的 Duplicate Protection、`allowManagerFinalizeRevenueSharing` 开关的 3 种情境、Wallet Detail/Driver Wallet/Wallet History 三个查询、既有 Driver 自助端点自然带出新交易类型、Booking Total 不一致时整个中止；加上 2026-07 新增的「Leg 完成自动触发 Revenue Sharing Payout」describe block（9 个测试）：单 Leg 均分 100%、两 Leg 只完成一个不用等整张 Booking、两 Leg 各自完成总和精确等于 driverPoolCents、重复 Complete 不重复发钱、有手动填写时仍按比例分配、V1 不受影响、没有 Charge 时清楚报错且 Leg 不会被误标 COMPLETED、Commission 设定不合理时清楚报错、Settlement Preview 能读到新交易类型。
 - [`companySettings.integration.test.ts`](../../apps/backend/src/modules/companySettings/companySettings.integration.test.ts) 新增 `allowManagerFinalizeRevenueSharing` 默认值与可切换性的测试。
 - Permission Test：[`permissions.test.ts`](../../apps/backend/src/common/permissions.test.ts) 断言 `DEFAULT_ROLE_PERMISSIONS` 矩阵（RBAC 层，不含 Company Settings 那层动态判断）；[`rbac.integration.test.ts`](../../apps/backend/src/modules/auth/rbac.integration.test.ts) 自动比对 DB 资料是否一致。
 - 既有测试更新：[`wallet.integration.test.ts`](../../apps/backend/src/modules/wallet/wallet.integration.test.ts) 的全部 11 笔 `bookingsService.createBooking` 调用补上 `financialVersion: "V1"`——这个档案测的正是 Module 3 的旧机制，明确标记成 V1 才符合 Migration Cut-over「旧 Booking 不主动迁移」的设计，也确保这些既有测试在新的 Cut-over 默认值（V2）之下仍然验证的是它们原本要测的行为。
 
 ## 已知限制
 
-- **Settlement 还没有整合**——`REVENUE_SHARE_PAYOUT` 目前只是 `PENDING` 状态躺在 Wallet 里，日结（Daily Settlement）机制本身没有改动，能不能正常把这批新交易结算掉沿用既有逻辑（理论上可以，因为 Settlement 本来就是「捞出所有 PENDING 的 WalletTransaction」，不分 transactionType），但没有专门针对这个新类型写 Settlement 层级的测试，用户明确要求这次不开始 Settlement。
+- **Charge 冻结的时间点提前了**——原本设计是「整张 Booking 完成才 Finalize，才冻结原始 Charge」；现在第一条 Leg 完成就会自动 Finalize，代表多 Leg 的 Booking 里，只要有任何一条 Leg 先完成，`Booking.financialStatus` 就收敛成 `FINALIZED`，之后只能新增 Adjustment（补收/冲销），不能再新增原始 Charge——即使其他 Leg 还在进行中。这是这次修正刻意的取舍（否则无法满足「每条 Leg 独立产生收入，不需要等整张 Booking 完成」的需求），Dispatcher/Manager 如果需要在多 Leg 行程中途调整车资，要用 Adjustment 而不是新增原始 Charge。
+- **Settlement 已验证能正确读到 `REVENUE_SHARE_PAYOUT`**——`REVENUE_SHARE_PAYOUT` 目前是 `PENDING` 状态躺在 Wallet 里，日结（Daily Settlement）机制没有改动，`getTransactionsInPeriod` 本来就不分 `transactionType`，2026-07 修正同时把 `summarizeWallet` 的分类桶也补上了（原本会被错误归类成 Adjustment），并新增了对应的 Settlement Preview 整合测试。
 - **没有「Re-issue」或「补发」流程**——Finalize 只能成功一次；如果 Leg 分配比例事后发现算错，目前没有设计任何更正路径（既有的 Manual Adjustment 可以手动补差额，但不是这个 Module 专属设计的机制）。
 - **没有 Approve 步骤**——用户已经明确未来的方向是 `Preview → Approve → Finalize`，这次只做了业务流程从「Finalize + 手动 Issue Wallet」简化成「Finalize 自动发放」，`Approve` 本身完全没有实作，Finalize 目前是 Preview 之后唯一能做的下一步。
 - **`allowManagerFinalizeRevenueSharing` 是唯一一个开关，没有更细的粒度**——例如没办法只放开「Finalize 但不自动发 Wallet」给 MANAGER，两者绑在一起。如果未来需要这种细粒度，要另外设计。
 - **Dispatcher Commission 完全没有对应的 Wallet 机制**——这个系统没有 Dispatcher Wallet 的概念，`dispatcherCommissionCents` 只停留在 Snapshot 里，如何实际发放给 Dispatcher（如果需要）留给未来。
 - **没有 HTTP 层级的自动化测试**、**Frontend 完全未开发**，延续本专案既有做法。
+- **「均分」只是权重全部未填时的保底行为，不是真正的排班/协议机制**——如果两条 Leg 的实际工作量差很多但都没填 `earningAllocationCents`，两个司机还是会被平分 `driverPoolCents`，不会自动按行程距离/时长调整。Dispatcher 如果需要不对等分配，还是要在 Add Leg / Edit Allocation 手动填入具体金额。

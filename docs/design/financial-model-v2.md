@@ -484,7 +484,7 @@ Booking
 20. 已 `VERIFIED` 或已牵涉 Settlement 的 Expense 不能直接修改，只能 Void 后重建。
 21. Booking 原本「有收入历史就锁死总价/抽成」的规则拿掉，改成「记录不能改，只能加」的通用规则。
 22. Booking 新增一个独立于营运 `status` 之外的财务状态 `financialStatus`（`OPEN`/`ACCRUING`/`FINALIZED`/`VOIDED`），两者并行存在，`financialStatus` 同样是派生值，不能手动设定。
-23. Revenue Sharing Snapshot **只在** Booking `financialStatus` 进入 `FINALIZED` 时产生，唯一触发点；Leg 完成时的 `LEG_EARNING` 走即时计算，不产生 Snapshot。
+23. ~~Revenue Sharing Snapshot 只在 Booking `financialStatus` 进入 `FINALIZED` 时产生，唯一触发点~~——**2026-07 修正（driver-earnings-after-leg-completion，见 [wallet-migration.md](../modules/wallet-migration.md)）已取代此规则**：Financial V1 的 Booking，Leg 完成时的 `LEG_EARNING` 仍然走即时计算，不产生 Snapshot；但 Financial V2 的 Booking，Snapshot 改成 Booking 第一条 Leg 完成时自动建立（等同自动 Finalize），不再需要等 Owner/Manager 手动呼叫 Finalize API——原本的设计假设「一定有人会手动触发 Finalize」在实务上不成立，前端从未做过这个 UI。
 24. Trip Expense 的状态机是 `PENDING → VERIFIED/REJECTED`，`VERIFIED` 之后视情况再到 `REIMBURSED`，或人工 `VOIDED`；`REJECTED`/`REIMBURSED`/`VOIDED` 都是终态。
 25. Collection 支持 Partial Collection：`Expected`/`Received`/`Outstanding` 都是衍生计算，`Received` 是同一组底下所有实际收款记录的加总，不是回头修改一笔记录的金额。
 26. 每笔 Wallet Transaction 除了既有的 Type，还要分类一个 Source（`BOOKING_REVENUE`/`TRIP_EXPENSE`/`MANUAL`/`SETTLEMENT_CORRECTION`），并带一个指回源头记录的参照，让资金链路可以被追溯。

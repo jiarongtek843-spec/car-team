@@ -58,7 +58,12 @@ function summarizeWallet(transactions: { transactionType: string; amountCents: n
   let negativeAdjustmentsCents = 0;
 
   for (const tx of transactions) {
-    if (tx.transactionType === "LEG_EARNING") {
+    // LEG_EARNING 是 Financial V1 的即时记账；REVENUE_SHARE_PAYOUT 是 Financial V2 的
+    // Revenue Sharing 分润——两者都代表「司机完成行程的收入」，只是机制不同，Settlement
+    // 报表上归同一个桶，不该把 V2 的收入错误归类成 Adjustment（2026-07 driver-earnings
+    // -after-leg-completion 修复的一部分：V2 的 Wallet Transaction 之前从未真的产生过，
+    // 这个分类分支实际上从来没被走到过）。
+    if (tx.transactionType === "LEG_EARNING" || tx.transactionType === "REVENUE_SHARE_PAYOUT") {
       completedLegEarningsCents += tx.amountCents;
     } else if (tx.amountCents >= 0) {
       positiveAdjustmentsCents += tx.amountCents;

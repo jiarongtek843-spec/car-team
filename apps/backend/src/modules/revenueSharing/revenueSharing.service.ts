@@ -7,6 +7,7 @@ import {
   allocateDriverPool,
   calculateRevenueSharing,
   type ChargeForRevenueSharing,
+  type LegAllocationInput,
   type RevenueRuleConfig
 } from "./revenueSharing.calculator.js";
 import { createRevenueSharePayouts } from "../wallet/wallet.service.js";
@@ -62,6 +63,39 @@ async function loadChargesForRevenueSharing(client: TxClient, bookingId: number)
     participatesInRevenueSharing: charge.chargeType.participatesInRevenueSharing,
     isCompanyRevenue: charge.chargeType.isCompanyRevenue,
     amountCents: charge.amountCents
+  }));
+}
+
+async function loadEligibleLegsForAllocation(client: TxClient, bookingId: number) {
+  return client.leg.findMany({
+    where: { bookingId, status: { not: "CANCELLED" }, driverId: { not: null } },
+    select: { id: true, driverId: true, earningAllocationCents: true },
+    orderBy: { sequence: "asc" }
+  });
+}
+
+/**
+ * 准备喂给 allocateDriverPool 的权重。Dispatch Center 的 Quick Assign 流程完全不会经过
+ * 「司机收入 (RM)」这个欄位（那是 AddLeg/EditAllocation 才有的可选栏位），实际使用上几乎
+ * 没有人会手动去填——照原本「未填 = 权重 0」的规则，会让每一张 V2 Booking 的 Driver Pool
+ * 永远卡在没人可以分（2026-07 Railway Staging 验证发现的真实 Bug 之一）。
+ * 修正规则：这张 Booking 底下「所有」合格 Leg 都没有人手动填过司机收入时，视为「均分」
+ * （每条权重相等，单一 Leg 因此拿到 100%）；只要「有任何一条」被手动填过，完全照旧维持
+ * 「按填写的 cents 数字加权」，没填的那条权重是 0——不影响任何已经手动设定过分配比例的
+ * 既有使用情境。
+ */
+function buildAllocationWeights(
+  legs: { id: number; driverId: number | null; earningAllocationCents: number | null }[]
+): LegAllocationInput[] {
+  const withDriver = legs.filter(
+    (leg): leg is typeof legs[number] & { driverId: number } => leg.driverId !== null
+  );
+  const hasExplicitAllocation = withDriver.some((leg) => (leg.earningAllocationCents ?? 0) > 0);
+
+  return withDriver.map((leg) => ({
+    legId: leg.id,
+    driverId: leg.driverId,
+    earningAllocationCents: hasExplicitAllocation ? leg.earningAllocationCents ?? 0 : 1
   }));
 }
 
@@ -195,15 +229,8 @@ export async function finalizeRevenueSharing(bookingId: number, actor: AuditActo
     let walletTransactions: Awaited<ReturnType<typeof createRevenueSharePayouts>> = [];
 
     if (booking.financialVersion === "V2") {
-      const legs = await tx.leg.findMany({
-        where: { bookingId, status: { not: "CANCELLED" }, driverId: { not: null } },
-        select: { id: true, driverId: true, earningAllocationCents: true }
-      });
-
-      const allocations = allocateDriverPool(
-        snapshot.driverPoolCents,
-        legs.map((leg) => ({ legId: leg.id, driverId: leg.driverId!, earningAllocationCents: leg.earningAllocationCents ?? 0 }))
-      );
+      const legs = await loadEligibleLegsForAllocation(tx, bookingId);
+      const allocations = allocateDriverPool(snapshot.driverPoolCents, buildAllocationWeights(legs));
 
       if (allocations.length > 0) {
         walletTransactions = await createRevenueSharePayouts(
@@ -216,6 +243,122 @@ export async function finalizeRevenueSharing(bookingId: number, actor: AuditActo
 
     return { ...snapshot, walletTransactions };
   });
+}
+
+/**
+ * V2 专用：Leg 第一次变成 COMPLETED 时，从 driverJobs.service.ts 的 completeLeg 在同一个
+ * Transaction 内呼叫——取代原本「必须由 Owner/Manager 手动呼叫 Finalize」的设计
+ * （2026-07 Railway Staging 验证发现：前端从来没有做过这个手动按钮，所有 V2 Booking 的
+ * 司机收入永远不会产生，见 docs/modules/wallet-migration.md「自动触发」章节）。
+ *
+ * 规则：
+ * - 这张 Booking 第一条 Leg 完成时，当场建立 Revenue Sharing Snapshot（等同自动
+ *   Finalize），Company/Dispatcher Commission 跟 Driver Pool 总额从此定案（Booking
+ *   financialStatus 收敛成 FINALIZED，之后只能新增 Adjustment，不能再新增原始
+ *   Charge——跟手动 Finalize 完全一样的约束）。
+ * - 每条 Leg 只在「自己完成的当下」拿到自己那一份分配额，不需要等整张 Booking 全部
+ *   完成——分配比例在 Snapshot 建立当下就用「当下所有合格 Leg」算好一次，只是实际
+ *   发放逐条进行，先完成的先拿到。
+ * - `applyLegTransition` 的条件式 update（WHERE 状态在期望范围内）加上
+ *   `@@unique([legId, transactionType])`，双重保证同一条 Leg 不会被发放两次。
+ * - 呼叫方（completeLeg）已经在同一个 DB Transaction 里完成了 Leg 状态转换，这里任何
+ *   一步失败都会让整个 Transaction 一起回滚——Leg 也不会被标记 COMPLETED。这是刻意的：
+ *   算不出该发多少钱，就不能假装这段行程完成了，比静默产生一笔错误金额更安全。
+ */
+export async function payoutForCompletedLeg(
+  tx: Prisma.TransactionClient,
+  input: { bookingId: number; legId: number },
+  actor: AuditActor
+) {
+  await tx.$queryRaw`SELECT id FROM "bookings" WHERE id = ${input.bookingId} FOR UPDATE`;
+
+  const booking = await tx.booking.findUniqueOrThrow({ where: { id: input.bookingId } });
+
+  let snapshot = await tx.revenueSharingSnapshot.findUnique({ where: { bookingId: input.bookingId } });
+
+  if (!snapshot) {
+    const settings = await getCompanySettings();
+    const rule = toRuleConfig(settings);
+
+    const charges = await tx.bookingCharge.findMany({
+      where: { bookingId: input.bookingId },
+      include: chargeForRevenueSharingInclude
+    });
+    if (charges.length === 0) {
+      throw new ValidationError(
+        `Booking #${input.bookingId} 还没有任何 Charge（尚未设定车资），无法计算司机收入，请先联系管理员补上 Booking 金额后再完成行程`
+      );
+    }
+
+    const chargeSumCents = charges.reduce((sum, charge) => sum + charge.amountCents, 0);
+    if (chargeSumCents !== booking.totalAmountCents) {
+      throw new ValidationError(
+        `Booking #${input.bookingId} 的 Total（${booking.totalAmountCents}）与 Charge 实际加总（${chargeSumCents}）不一致，无法计算司机收入，请先联系管理员检查资料`
+      );
+    }
+
+    const chargeInputs: ChargeForRevenueSharing[] = charges.map((charge) => ({
+      chargeTypeKey: charge.chargeType.key,
+      participatesInRevenueSharing: charge.chargeType.participatesInRevenueSharing,
+      isCompanyRevenue: charge.chargeType.isCompanyRevenue,
+      amountCents: charge.amountCents
+    }));
+
+    const result = calculateRevenueSharing(chargeInputs, rule);
+
+    snapshot = await tx.revenueSharingSnapshot.create({
+      data: {
+        bookingId: input.bookingId,
+        triggeredBy: "LEG_COMPLETED",
+        companyRevenueCents: result.companyRevenueCents,
+        dispatcherCommissionCents: result.dispatcherCommissionCents,
+        driverPoolCents: result.driverPoolCents,
+        chargeBreakdown: {
+          charges: JSON.parse(JSON.stringify(result.chargeBreakdown)),
+          rule: JSON.parse(JSON.stringify(result.ruleBreakdown)),
+          participatingAmountCents: result.participatingAmountCents,
+          nonParticipatingCompanyCents: result.nonParticipatingCompanyCents,
+          nonParticipatingDriverCents: result.nonParticipatingDriverCents
+        }
+      }
+    });
+
+    await tx.booking.update({ where: { id: input.bookingId }, data: { financialStatus: "FINALIZED" } });
+
+    await writeAuditLog(
+      {
+        actor,
+        action: "REVENUE_SHARING_FINALIZED",
+        entityType: "RevenueSharingSnapshot",
+        entityId: snapshot.id,
+        afterData: {
+          bookingId: input.bookingId,
+          companyRevenueCents: snapshot.companyRevenueCents,
+          dispatcherCommissionCents: snapshot.dispatcherCommissionCents,
+          driverPoolCents: snapshot.driverPoolCents,
+          triggeredBy: "LEG_COMPLETED"
+        },
+        metadata: { rule, legId: input.legId }
+      },
+      tx
+    );
+  }
+
+  const legs = await loadEligibleLegsForAllocation(tx, input.bookingId);
+  const allocations = allocateDriverPool(snapshot.driverPoolCents, buildAllocationWeights(legs));
+  const forThisLeg = allocations.find((allocation) => allocation.legId === input.legId);
+
+  if (!forThisLeg) {
+    return null;
+  }
+
+  const [payout] = await createRevenueSharePayouts(
+    tx,
+    { bookingId: input.bookingId, revenueSnapshotId: snapshot.id, allocations: [forThisLeg] },
+    actor
+  );
+
+  return payout;
 }
 
 export async function getRevenueSnapshot(bookingId: number) {

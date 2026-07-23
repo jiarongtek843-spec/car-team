@@ -169,7 +169,7 @@ Booking
 记录行程中公司或司机的实际支出（过路费/停车费/油钱），独立 Ledger，Append Only，完全不影响客户应付金额，也不参与 Revenue Sharing。更正机制维持原设计（`reverses_expense_id`，Void 后重建），这次没有变动。
 
 ### `revenue_sharing_snapshots`（新增）
-Booking 进入 `FINALIZED` 财务状态时产生的唯一一笔快照，锁定当下算出来的 Company Revenue / Driver Pool，供报表/审计使用，永不重算、永不覆写。每张 Booking 最多一笔——**这是唯一触发点，Leg 完成时不产生 Snapshot**（呼应 financial-model-v2.md 已确认规则 23）。
+Booking 进入 `FINALIZED` 财务状态时产生的唯一一笔快照，锁定当下算出来的 Company Revenue / Driver Pool，供报表/审计使用，永不重算、永不覆写。每张 Booking 最多一笔。**2026-07 修正（driver-earnings-after-leg-completion，见 [wallet-migration.md](../modules/wallet-migration.md)）**：Financial V2 的 Booking，第一条 Leg 完成时会自动触发（不再只有手动 Finalize API 这一个触发点），`triggered_by` 用 `LEG_COMPLETED` 区分来源；Financial V1 的 Booking 仍然完全不受影响（继续用 `LEG_EARNING`，不建立 Snapshot）。
 
 ### `bookings`（既有，扩充）
 新增 `financial_status`（`OPEN`/`ACCRUING`/`FINALIZED`/`VOIDED`），跟既有的营运 `status` 并行、同样是派生值。`total_amount_cents`/`platform_amount_cents`/`driver_pool_amount_cents` 三个既有栏位维持存在，但语意从「可编辑」改为「快取的计算结果」。

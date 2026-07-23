@@ -1,6 +1,8 @@
 # Module 11: Revenue Sharing API（Financial API Phase 2）
 
 > 承接 [financial-model-v2.md](../design/financial-model-v2.md)、[database-schema-v2.md](../design/database-schema-v2.md)、[booking-charge-api.md](./booking-charge-api.md) 和 [booking.md](./booking.md#booking-charge-整合financial-model-v2)。这次开发的是 Revenue Sharing 的计算、Snapshot 与查询 API，**没有 Trip Expense/Collection/Wallet API，也没有 Frontend**，也没有把既有的 Wallet/Settlement 迁移过来使用这套新的分润结果（那是之后的 Wallet Migration）。
+>
+> **2026-07 更新**：本文档描述的 Finalize API（下方）仍然存在、行为不变，但 Financial V2 的 Booking 实务上已经不再依赖手动呼叫这支 API 才能产生收入——Booking 第一条 Leg 完成时会自动执行等同的逻辑。详见 [wallet-migration.md「自动触发」章节](./wallet-migration.md#自动触发2026-07-修正driver-earnings-after-leg-completion)。
 
 ## Revenue Rule
 

@@ -34,7 +34,13 @@ beforeEach(async () => {
 afterEach(async () => {
   await prisma.companySettings.update({
     where: { id: originalSettings.id },
-    data: { allowManagerFinalizeRevenueSharing: originalSettings.allowManagerFinalizeRevenueSharing }
+    data: {
+      allowManagerFinalizeRevenueSharing: originalSettings.allowManagerFinalizeRevenueSharing,
+      companyCommissionType: originalSettings.companyCommissionType,
+      companyCommissionValue: originalSettings.companyCommissionValue,
+      dispatcherCommissionType: originalSettings.dispatcherCommissionType,
+      dispatcherCommissionValue: originalSettings.dispatcherCommissionValue
+    }
   });
 });
 
@@ -95,7 +101,7 @@ describe("Financial Version Cut-over（completeLeg 依版本决定要不要建�
     expect(legEarning?.amountCents).toBe(2400);
   });
 
-  it("Financial V2 的 Booking，Leg 完成时完全不建立 LEG_EARNING", async () => {
+  it("Financial V2 的 Booking，Leg 完成时不建立 LEG_EARNING，改自动产生 REVENUE_SHARE_PAYOUT（driver-earnings-after-leg-completion 修复）", async () => {
     const driver = await createTestDriver("Cutover V2 Driver");
     driverIds.push(driver.id);
 
@@ -115,8 +121,315 @@ describe("Financial Version Cut-over（completeLeg 依版本决定要不要建�
     const completed = await driverJobsService.completeLeg(driver.id, leg.id, ownerActor);
     expect(completed.status).toBe("COMPLETED");
 
-    const anyTransaction = await prisma.walletTransaction.findFirst({ where: { legId: leg.id } });
-    expect(anyTransaction).toBeNull();
+    const legEarning = await prisma.walletTransaction.findFirst({
+      where: { legId: leg.id, transactionType: "LEG_EARNING" }
+    });
+    expect(legEarning).toBeNull();
+
+    const payout = await prisma.walletTransaction.findFirst({
+      where: { legId: leg.id, transactionType: "REVENUE_SHARE_PAYOUT" }
+    });
+    expect(payout).not.toBeNull();
+    expect(payout?.driverId).toBe(driver.id);
+    expect(payout?.amountCents).toBeGreaterThan(0);
+
+    const reloaded = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
+    expect(reloaded.financialStatus).toBe("FINALIZED");
+  });
+});
+
+/**
+ * driver-earnings-after-leg-completion 修复（2026-07 Railway Staging 验证发现）：
+ * Financial V2 的 Booking 原本要靠 Owner/Manager 手动呼叫 Finalize 才会发放 Wallet，
+ * 但前端从来没有做过这个手动按钮，导致所有 V2 Booking 的司机收入永远不会产生。
+ * 这里覆盖 completeLeg 的新自动触发路径：每条 Leg 完成时立刻拿到自己那一份，
+ * 不需要等整张 Booking 全部完成。
+ */
+describe("Leg 完成自动触发 Revenue Sharing Payout（V2，取代手动 Finalize）", () => {
+  it("单一 Leg：没有手动填司机收入，完成后自动均分成 100%，driverPoolCents 全额入袋", async () => {
+    const driver = await createTestDriver("Auto Payout Single Driver");
+    driverIds.push(driver.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoPayoutSingle",
+        totalAmountCents: 10000,
+        legs: [{ pickupLocation: "A", dropoffLocation: "B" }]
+      },
+      ownerActor
+    );
+    bookingIds.push(booking.id);
+
+    const [leg] = booking.legs;
+    await fastForwardToOnBoard(leg.id, driver.id);
+    await driverJobsService.completeLeg(driver.id, leg.id, ownerActor);
+
+    const snapshot = await prisma.revenueSharingSnapshot.findUniqueOrThrow({ where: { bookingId: booking.id } });
+    expect(snapshot.triggeredBy).toBe("LEG_COMPLETED");
+    expect(snapshot.driverPoolCents).toBeGreaterThan(0);
+
+    const payout = await prisma.walletTransaction.findFirstOrThrow({
+      where: { legId: leg.id, transactionType: "REVENUE_SHARE_PAYOUT" }
+    });
+    expect(payout.driverId).toBe(driver.id);
+    expect(payout.amountCents).toBe(snapshot.driverPoolCents);
+
+    const reloaded = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
+    expect(reloaded.financialStatus).toBe("FINALIZED");
+  });
+
+  it("两个 Leg 只完成一个：只产生那一个 Driver 的收入，不需要等整张 Booking 完成", async () => {
+    const driverA = await createTestDriver("Auto Payout Partial A");
+    const driverB = await createTestDriver("Auto Payout Partial B");
+    driverIds.push(driverA.id, driverB.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoPayoutPartial",
+        totalAmountCents: 10000,
+        legs: [
+          { pickupLocation: "A", dropoffLocation: "B", driverId: driverA.id },
+          { pickupLocation: "B", dropoffLocation: "C", driverId: driverB.id }
+        ]
+      },
+      ownerActor
+    );
+    bookingIds.push(booking.id);
+    const [legA, legB] = booking.legs;
+
+    await fastForwardToOnBoard(legA.id, driverA.id);
+    await driverJobsService.completeLeg(driverA.id, legA.id, ownerActor);
+
+    const payoutA = await prisma.walletTransaction.findFirst({
+      where: { legId: legA.id, transactionType: "REVENUE_SHARE_PAYOUT" }
+    });
+    expect(payoutA).not.toBeNull();
+    expect(payoutA?.driverId).toBe(driverA.id);
+
+    const payoutB = await prisma.walletTransaction.findFirst({
+      where: { legId: legB.id, transactionType: "REVENUE_SHARE_PAYOUT" }
+    });
+    expect(payoutB).toBeNull();
+
+    // Leg B 还没完成，营运 status 也不该是 COMPLETED——不需要等整张 Booking 结束。
+    const reloadedLegB = await prisma.leg.findUniqueOrThrow({ where: { id: legB.id } });
+    expect(reloadedLegB.status).not.toBe("COMPLETED");
+  });
+
+  it("两个 Leg 分别完成后，各自产生收入，总和精确等于 driverPoolCents", async () => {
+    const driverA = await createTestDriver("Auto Payout Both A");
+    const driverB = await createTestDriver("Auto Payout Both B");
+    driverIds.push(driverA.id, driverB.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoPayoutBoth",
+        totalAmountCents: 10000,
+        legs: [
+          { pickupLocation: "A", dropoffLocation: "B", driverId: driverA.id },
+          { pickupLocation: "B", dropoffLocation: "C", driverId: driverB.id }
+        ]
+      },
+      ownerActor
+    );
+    bookingIds.push(booking.id);
+    const [legA, legB] = booking.legs;
+
+    await fastForwardToOnBoard(legA.id, driverA.id);
+    await driverJobsService.completeLeg(driverA.id, legA.id, ownerActor);
+
+    await fastForwardToOnBoard(legB.id, driverB.id);
+    await driverJobsService.completeLeg(driverB.id, legB.id, ownerActor);
+
+    const snapshot = await prisma.revenueSharingSnapshot.findUniqueOrThrow({ where: { bookingId: booking.id } });
+    const payouts = await prisma.walletTransaction.findMany({
+      where: { bookingId: booking.id, transactionType: "REVENUE_SHARE_PAYOUT" }
+    });
+    expect(payouts).toHaveLength(2);
+    const sum = payouts.reduce((s, t) => s + t.amountCents, 0);
+    expect(sum).toBe(snapshot.driverPoolCents);
+
+    // 只有一次 Snapshot——第二条 Leg 完成时重用了第一条 Leg 完成当下建立的那一笔。
+    const snapshotCount = await prisma.revenueSharingSnapshot.count({ where: { bookingId: booking.id } });
+    expect(snapshotCount).toBe(1);
+  });
+
+  it("重复 Complete 不重复发钱（Leg 状态机挡下第二次转换，从未到达 Payout 逻辑）", async () => {
+    const driver = await createTestDriver("Auto Payout Duplicate Complete");
+    driverIds.push(driver.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoPayoutDuplicateComplete",
+        totalAmountCents: 10000,
+        legs: [{ pickupLocation: "A", dropoffLocation: "B", driverId: driver.id }]
+      },
+      ownerActor
+    );
+    bookingIds.push(booking.id);
+    const [leg] = booking.legs;
+
+    await fastForwardToOnBoard(leg.id, driver.id);
+    await driverJobsService.completeLeg(driver.id, leg.id, ownerActor);
+
+    await expect(driverJobsService.completeLeg(driver.id, leg.id, ownerActor)).rejects.toThrow();
+
+    const count = await prisma.walletTransaction.count({
+      where: { legId: leg.id, transactionType: "REVENUE_SHARE_PAYOUT" }
+    });
+    expect(count).toBe(1);
+  });
+
+  it("有人手动填过司机收入时，仍然照旧按 earningAllocationCents 比例分配（不影响既有情境）", async () => {
+    const driverA = await createTestDriver("Auto Payout Weighted A");
+    const driverB = await createTestDriver("Auto Payout Weighted B");
+    driverIds.push(driverA.id, driverB.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoPayoutWeighted",
+        totalAmountCents: 10000,
+        legs: [
+          { pickupLocation: "A", dropoffLocation: "B", driverId: driverA.id, earningAllocationCents: 6000 },
+          { pickupLocation: "B", dropoffLocation: "C", driverId: driverB.id, earningAllocationCents: 2000 }
+        ]
+      },
+      ownerActor
+    );
+    bookingIds.push(booking.id);
+    const [legA, legB] = booking.legs;
+
+    await fastForwardToOnBoard(legA.id, driverA.id);
+    await driverJobsService.completeLeg(driverA.id, legA.id, ownerActor);
+
+    await fastForwardToOnBoard(legB.id, driverB.id);
+    await driverJobsService.completeLeg(driverB.id, legB.id, ownerActor);
+
+    const snapshot = await prisma.revenueSharingSnapshot.findUniqueOrThrow({ where: { bookingId: booking.id } });
+    const payoutA = await prisma.walletTransaction.findFirstOrThrow({ where: { legId: legA.id } });
+    const payoutB = await prisma.walletTransaction.findFirstOrThrow({ where: { legId: legB.id } });
+
+    // 6000:2000 = 3:1，跟原本手动 Finalize 的既有测试断言完全一致。
+    expect(payoutA.amountCents).toBe(Math.round(snapshot.driverPoolCents * 0.75));
+    expect(payoutB.amountCents).toBe(snapshot.driverPoolCents - payoutA.amountCents);
+  });
+
+  it("Financial V1 的 Booking 仍然只走 LEG_EARNING，不会建立 Revenue Sharing Snapshot", async () => {
+    const driver = await createTestDriver("Auto Payout V1 Untouched");
+    driverIds.push(driver.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoPayoutV1Untouched",
+        financialVersion: "V1",
+        totalAmountCents: 6000,
+        legs: [{ pickupLocation: "A", dropoffLocation: "B", earningAllocationCents: 2400 }]
+      },
+      ownerActor
+    );
+    bookingIds.push(booking.id);
+
+    const [leg] = booking.legs;
+    await fastForwardToOnBoard(leg.id, driver.id);
+    await driverJobsService.completeLeg(driver.id, leg.id, ownerActor);
+
+    const snapshot = await prisma.revenueSharingSnapshot.findUnique({ where: { bookingId: booking.id } });
+    expect(snapshot).toBeNull();
+
+    const legEarning = await prisma.walletTransaction.findFirst({
+      where: { legId: leg.id, transactionType: "LEG_EARNING" }
+    });
+    expect(legEarning).not.toBeNull();
+  });
+
+  it("Booking 还没有任何 Charge（车资未设定）时，拒绝完成 Leg 并清楚报错，不静默产生 RM0 收入", async () => {
+    const driver = await createTestDriver("Auto Payout No Charge");
+    driverIds.push(driver.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoPayoutNoCharge",
+        totalAmountCents: 0,
+        legs: [{ pickupLocation: "A", dropoffLocation: "B", driverId: driver.id }]
+      },
+      ownerActor
+    );
+    bookingIds.push(booking.id);
+    const [leg] = booking.legs;
+
+    await fastForwardToOnBoard(leg.id, driver.id);
+    await expect(driverJobsService.completeLeg(driver.id, leg.id, ownerActor)).rejects.toThrow(ValidationError);
+
+    // Transaction 整个回滚——Leg 不会被误标记成 COMPLETED。
+    const reloadedLeg = await prisma.leg.findUniqueOrThrow({ where: { id: leg.id } });
+    expect(reloadedLeg.status).toBe("PASSENGER_ON_BOARD");
+  });
+
+  it("Company Commission + Dispatcher Commission 设定超过 100% 时，拒绝完成 Leg 并清楚报错（不静默失败）", async () => {
+    // updateCompanySettings 本身的 assertRevenueRuleSane 已经会挡下这个组合，这里故意
+    // 绕过 Service 直接写 DB，模拟资料本身已经处于不合理状态（例如旧资料、手动改库）时，
+    // calculateRevenueSharing 在真正要发钱的当下仍然是最后一道防线，不会静默算出负数。
+    await prisma.companySettings.update({
+      where: { id: originalSettings.id },
+      data: {
+        companyCommissionType: "PERCENTAGE",
+        companyCommissionValue: 60,
+        dispatcherCommissionType: "PERCENTAGE",
+        dispatcherCommissionValue: 50
+      }
+    });
+
+    const driver = await createTestDriver("Auto Payout Bad Commission");
+    driverIds.push(driver.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoPayoutBadCommission",
+        totalAmountCents: 10000,
+        legs: [{ pickupLocation: "A", dropoffLocation: "B", driverId: driver.id }]
+      },
+      ownerActor
+    );
+    bookingIds.push(booking.id);
+    const [leg] = booking.legs;
+
+    await fastForwardToOnBoard(leg.id, driver.id);
+    await expect(driverJobsService.completeLeg(driver.id, leg.id, ownerActor)).rejects.toThrow(ValidationError);
+
+    const reloadedLeg = await prisma.leg.findUniqueOrThrow({ where: { id: leg.id } });
+    expect(reloadedLeg.status).toBe("PASSENGER_ON_BOARD");
+    const snapshot = await prisma.revenueSharingSnapshot.findUnique({ where: { bookingId: booking.id } });
+    expect(snapshot).toBeNull();
+  });
+
+  it("Settlement Preview 能读到自动触发产生的 REVENUE_SHARE_PAYOUT（不是只认得旧的 LEG_EARNING）", async () => {
+    const driver = await createTestDriver("Auto Payout Settlement Visible");
+    driverIds.push(driver.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoPayoutSettlementVisible",
+        totalAmountCents: 10000,
+        legs: [{ pickupLocation: "A", dropoffLocation: "B", driverId: driver.id }]
+      },
+      ownerActor
+    );
+    bookingIds.push(booking.id);
+    const [leg] = booking.legs;
+
+    await fastForwardToOnBoard(leg.id, driver.id);
+    await driverJobsService.completeLeg(driver.id, leg.id, ownerActor);
+
+    const payout = await prisma.walletTransaction.findFirstOrThrow({ where: { legId: leg.id } });
+
+    const { previewSettlement } = await import("../settlement/settlement.service.js");
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const preview = await previewSettlement(driver.id, todayStr, todayStr);
+
+    expect(preview.transactions.some((t) => t.id === payout.id)).toBe(true);
+    // REVENUE_SHARE_PAYOUT 归类成「已完成行程收入」，不是普通 Adjustment。
+    expect(preview.completedLegEarningsCents).toBeGreaterThanOrEqual(payout.amountCents);
   });
 });
 

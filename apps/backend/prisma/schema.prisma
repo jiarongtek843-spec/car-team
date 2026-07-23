@@ -163,10 +163,14 @@ enum TripExpenseStatus {
   VOIDED
 }
 
-// 目前唯一的触发来源；保留成 enum（不是布林值）方便以后新增其他触发情境
-// （例如手动重算）而不需要改栏位型别。
+// BOOKING_FINALIZED：Owner/Manager 手动呼叫 Finalize API。LEG_COMPLETED（2026-07 新增，
+// Driver Earnings Auto-Trigger Bug Fix）：V2 Booking 的第一条 Leg 完成时，由
+// driverJobs.completeLeg 自动建立——取代原本「没有任何 UI 会呼叫 Finalize，所有 V2
+// Booking 的司机收入永远不会产生」的死路。两者只差在触发来源，Snapshot 本身的计算逻辑
+// 完全相同。见 docs/modules/wallet-migration.md。
 enum RevenueSnapshotTrigger {
   BOOKING_FINALIZED
+  LEG_COMPLETED
 }
 
 // RBAC（Module 7）：Role 存数据库，Permission Key 固定写在

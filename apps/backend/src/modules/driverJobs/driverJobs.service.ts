@@ -4,6 +4,7 @@ import { NotFoundError } from "../../common/errors.js";
 import { recalculateBookingStatus } from "../bookings/bookings.service.js";
 import { applyLegTransition } from "../bookings/legTransition.js";
 import { createLegEarning } from "../wallet/wallet.service.js";
+import { payoutForCompletedLeg } from "../revenueSharing/revenueSharing.service.js";
 import type { AuditActor } from "../../common/audit.js";
 
 const bookingSummaryInclude = {
@@ -72,14 +73,20 @@ export function markPassengerOnBoard(driverId: number, legId: number) {
 }
 
 /**
- * Leg 状态转成 COMPLETED 跟建立 LEG_EARNING 一定要在同一个 DB Transaction 里，
- * 才能保证「第一次成功变 Completed」跟「产生一笔收入」是同一件事、不会因为中途出错而对不上。
+ * Leg 状态转成 COMPLETED 跟产生收入一定要在同一个 DB Transaction 里，才能保证
+ * 「第一次成功变 Completed」跟「产生一笔收入」是同一件事、不会因为中途出错而对不上。
  *
- * Module 12（Wallet Migration）起，这里改成按 Booking 的 financialVersion 决定要不要记账：
- * Financial V1（这次 migration 之前就存在的旧 Booking）继续用这套「Leg 完成当下立刻记账」
- * 的机制；Financial V2（migration 之后新建立的 Booking）完全不在这里记账，收入改由
- * Revenue Sharing Finalize + Issue Wallet 统一处理——同一张 Booking 不会同时出现
- * LEG_EARNING 跟 REVENUE_SHARE_PAYOUT。见 docs/modules/wallet-migration.md。
+ * 按 Booking 的 financialVersion 决定要不要记账、怎么记账：
+ * Financial V1（这次 migration 之前就存在的旧 Booking）继续用「Leg 完成当下立刻记账」
+ * 的 LEG_EARNING 机制；Financial V2（migration 之后新建立的 Booking）改由
+ * revenueSharing.service.ts 的 payoutForCompletedLeg 处理——同一张 Booking 不会同时
+ * 出现 LEG_EARNING 跟 REVENUE_SHARE_PAYOUT。见 docs/modules/wallet-migration.md。
+ *
+ * 2026-07 修正（driver-earnings-after-leg-completion）：V2 原本设计成要等 Owner/Manager
+ * 手动呼叫 Revenue Sharing Finalize 才会发放 Wallet，但前端从来没有做过这个手动按钮，
+ * 导致所有 V2 Booking 的司机收入永远不会产生。改成这里直接呼叫 payoutForCompletedLeg，
+ * 该 Booking 第一条 Leg 完成时自动建立 Revenue Sharing Snapshot（等同自动 Finalize），
+ * 之后每条 Leg 各自完成时立刻拿到自己那一份，不需要等整张 Booking 全部完成。
  */
 export async function completeLeg(driverId: number, legId: number, actor: AuditActor) {
   const leg = await prisma.$transaction(async (tx) => {
@@ -98,6 +105,8 @@ export async function completeLeg(driverId: number, legId: number, actor: AuditA
 
     if (booking.financialVersion === "V1") {
       await createLegEarning(tx, updatedLeg, actor);
+    } else {
+      await payoutForCompletedLeg(tx, { bookingId: updatedLeg.bookingId, legId: updatedLeg.id }, actor);
     }
 
     return updatedLeg;
