@@ -1,6 +1,6 @@
-import type { LegStatus } from "../../types/booking";
+import type { LegStatus, LegType } from "../../types/booking";
 
-export type BookingDispatchFilter = "WAITING" | "ASSIGNED" | "ACCEPTED" | "IN_PROGRESS";
+export type BookingDispatchFilter = "WAITING" | "ASSIGNED" | "ACCEPTED" | "IN_PROGRESS" | "COMPLETED";
 export type DriverDispatchFilter = "ONLINE" | "OFFLINE" | "CONNECTION_LOST" | "BUSY" | "IDLE";
 export type DispatchPriority = "NORMAL" | "HIGH" | "URGENT";
 export type DispatchGpsStatus = "ONLINE" | "OFFLINE" | "CONNECTION_LOST";
@@ -11,9 +11,11 @@ export interface DispatchWaitingLeg {
   girlName: string;
   bookingStatus: string;
   sequence: number;
+  legType: LegType;
   pickupLocation: string | null;
   dropoffLocation: string | null;
   scheduledAt: string | null;
+  completedAt: string | null;
   bookingCreatedAt: string;
   priority: DispatchPriority;
   status: LegStatus;

@@ -12,7 +12,7 @@ function toQueryString(params: object) {
   return query ? `?${query}` : "";
 }
 
-export function fetchWaitingBookings(params: { filter?: BookingDispatchFilter; search?: string }) {
+export function fetchWaitingBookings(params: { filter?: BookingDispatchFilter; search?: string; date?: string }) {
   return http.get<DispatchWaitingLeg[]>(`/api/admin/dispatch/waiting-bookings${toQueryString(params)}`);
 }
 

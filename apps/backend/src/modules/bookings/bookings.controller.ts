@@ -6,11 +6,14 @@ import { actorFromRequest } from "../../common/audit.js";
 
 const bookingStatusSchema = z.enum(["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"]);
 const commissionTypeSchema = z.enum(["PERCENTAGE", "FIXED_AMOUNT"]);
+const legTypeSchema = z.enum(["OUTBOUND", "RETURN", "ADDITIONAL"]);
 
 const legInputSchema = z.object({
+  legType: legTypeSchema.optional(),
   pickupLocation: z.string().min(1).optional(),
   dropoffLocation: z.string().min(1).optional(),
-  scheduledAt: z.string().datetime().optional(),
+  // nullable：null 代表「明确选择时间未定」，跟省略这个栏位是两回事。
+  scheduledAt: z.string().datetime().nullable().optional(),
   driverId: z.coerce.number().int().positive().optional(),
   notes: z.string().optional(),
   earningAllocationCents: z.coerce.number().int().nonnegative().optional()

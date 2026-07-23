@@ -1,6 +1,8 @@
 import { Button, Card, Popconfirm, Space, Tag, Typography, message } from "antd";
 import type { DriverLeg } from "../types";
 import { useAcceptLegMutation, useCompleteLegMutation, useMarkArrivingMutation, useMarkOnBoardMutation } from "../hooks";
+import { LegTypeTag } from "../../bookings/components/StatusTags";
+import { formatLegDateTime } from "../../../lib/schedule";
 
 const STATUS_LABEL: Record<DriverLeg["status"], string> = {
   PENDING: "未指派",
@@ -33,17 +35,16 @@ export function JobCard({ leg, onReject }: { leg: DriverLeg; onReject: (legId: n
   return (
     <Card style={{ marginBottom: 12 }}>
       <Space direction="vertical" size={4} style={{ width: "100%" }}>
-        <Space>
+        <Space wrap>
           <Typography.Text strong>Booking #{leg.booking.id}</Typography.Text>
+          <LegTypeTag legType={leg.legType} />
           <Tag color={STATUS_COLOR[leg.status]}>{STATUS_LABEL[leg.status]}</Tag>
         </Space>
         <Typography.Text>Girl：{leg.booking.girlName}</Typography.Text>
         <Typography.Text>
           {leg.pickupLocation ?? "—"} → {leg.dropoffLocation ?? "—"}
         </Typography.Text>
-        <Typography.Text type="secondary">
-          {leg.scheduledAt ? new Date(leg.scheduledAt).toLocaleString() : "未设定时间"}
-        </Typography.Text>
+        <Typography.Text type="secondary">预定时间：{formatLegDateTime(leg.scheduledAt)}</Typography.Text>
         {leg.notes && <Typography.Text type="secondary">备注：{leg.notes}</Typography.Text>}
         {leg.status === "REJECTED" && leg.rejectionReason && (
           <Typography.Text type="danger">拒绝原因：{leg.rejectionReason}</Typography.Text>

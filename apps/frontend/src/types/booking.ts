@@ -1,4 +1,5 @@
 export type BookingStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+export type LegType = "OUTBOUND" | "RETURN" | "ADDITIONAL";
 export type LegStatus =
   | "PENDING"
   | "ASSIGNED"
@@ -28,6 +29,7 @@ export interface Leg {
   id: number;
   bookingId: number;
   sequence: number;
+  legType: LegType;
   driverId: number | null;
   driver: Driver | null;
   pickupLocation: string | null;
@@ -72,9 +74,11 @@ export interface PagedResult<T> {
 }
 
 export interface CreateLegInput {
+  legType?: LegType;
   pickupLocation?: string;
   dropoffLocation?: string;
-  scheduledAt?: string;
+  // undefined = 没带这个栏位；null = 明确选择「时间未定」；string = 实际时间。
+  scheduledAt?: string | null;
   driverId?: number;
   notes?: string;
   earningAllocationCents?: number;
@@ -98,9 +102,10 @@ export interface UpdateBookingInput {
 }
 
 export interface UpdateLegInput {
+  legType?: LegType;
   pickupLocation?: string;
   dropoffLocation?: string;
-  scheduledAt?: string;
+  scheduledAt?: string | null;
   notes?: string;
   earningAllocationCents?: number;
 }

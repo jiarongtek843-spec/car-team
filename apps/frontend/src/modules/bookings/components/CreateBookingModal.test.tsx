@@ -39,4 +39,29 @@ describe("CreateBookingModal（手机建单成功，对应 Booking 手机要求�
     expect(await screen.findByText("请输入 Girl 姓名")).toBeInTheDocument();
     expect(http.post).not.toHaveBeenCalled();
   });
+
+  it("默认建立去程(OUTBOUND)+回程(RETURN)两个 Leg，时间没填时送 undefined（显示待确认）", async () => {
+    vi.mocked(http.post).mockResolvedValueOnce({ id: 43, girlName: "Test Girl 2" });
+    renderWithProviders(<CreateBookingModal open onClose={() => {}} />, { route: "/" });
+
+    // 两张 Leg Card 应该已经预设存在（去程/回程），不需要使用者自己点「+新增行程」。
+    expect(screen.getByText("去程")).toBeInTheDocument();
+    expect(screen.getByText("回程")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Girl 姓名"), "Test Girl 2");
+    await userEvent.click(screen.getByRole("button", { name: /建\s*立/ }));
+
+    await waitFor(() =>
+      expect(http.post).toHaveBeenCalledWith(
+        "/api/bookings",
+        expect.objectContaining({
+          girlName: "Test Girl 2",
+          legs: [
+            expect.objectContaining({ legType: "OUTBOUND" }),
+            expect.objectContaining({ legType: "RETURN" })
+          ]
+        })
+      )
+    );
+  });
 });

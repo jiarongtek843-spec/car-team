@@ -10,6 +10,7 @@ import type { BookingListItem, BookingStatus } from "../../types/booking";
 import { formatCents } from "../../lib/money";
 import { useIsMobile } from "../../common/useIsMobile";
 import { MobileCardList } from "../../common/MobileCardList";
+import { ResponsiveFilterBar } from "../../common/ResponsiveFilterBar";
 
 const STATUS_OPTIONS: { label: string; value: BookingStatus }[] = [
   { label: "待处理", value: "PENDING" },
@@ -73,58 +74,33 @@ export function BookingListPage() {
         </Button>
       </Space>
 
-      {isMobile ? (
-        // 手机版：Status Filter / Girl 姓名输入框 / 搜索按钮各占一整行，
-        // 不用 Input.Search 内建的紧凑搜索按钮——那个按钮宽度固定，在窄屏下
-        // 会把输入框挤得很窄，跟这次要修的 Bug 是同一个问题。
-        <Space direction="vertical" size={8} style={{ marginBottom: 16, width: "100%" }}>
-          <Select
-            allowClear
-            placeholder="筛选状态"
-            style={{ width: "100%" }}
-            options={STATUS_OPTIONS}
-            value={status}
-            onChange={(value) => {
-              setStatus(value);
-              setPage(1);
-            }}
-          />
-          <Input
-            placeholder="搜索 Girl 姓名"
-            style={{ width: "100%" }}
-            allowClear
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onPressEnter={runSearch}
-          />
-          <Button type="primary" icon={<SearchOutlined />} block style={{ height: 44 }} onClick={runSearch}>
-            搜索
-          </Button>
-        </Space>
-      ) : (
-        <Space style={{ marginBottom: 16, width: "100%" }} wrap>
-          <Select
-            allowClear
-            placeholder="筛选状态"
-            style={{ width: 160, minWidth: 160 }}
-            options={STATUS_OPTIONS}
-            value={status}
-            onChange={(value) => {
-              setStatus(value);
-              setPage(1);
-            }}
-          />
-          <Input.Search
-            placeholder="搜索 Girl 姓名"
-            style={{ width: 240, minWidth: 200 }}
-            allowClear
-            onSearch={(value) => {
-              setSearch(value);
-              setPage(1);
-            }}
-          />
-        </Space>
-      )}
+      {/* 不用 Input.Search 内建的紧凑搜索按钮——那个按钮宽度固定，窄屏下会把输入框
+          挤得很窄。改用独立的 Input + Button，ResponsiveFilterBar 负责手机版的
+          排版（各占一行），这里不需要再自己写 isMobile 分支。 */}
+      <ResponsiveFilterBar>
+        <Select
+          allowClear
+          placeholder="筛选状态"
+          style={{ width: 160, minWidth: 160 }}
+          options={STATUS_OPTIONS}
+          value={status}
+          onChange={(value) => {
+            setStatus(value);
+            setPage(1);
+          }}
+        />
+        <Input
+          placeholder="搜索 Girl 姓名"
+          style={{ width: 240, minWidth: 200 }}
+          allowClear
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onPressEnter={runSearch}
+        />
+        <Button type="primary" icon={<SearchOutlined />} style={{ height: 44 }} onClick={runSearch}>
+          搜索
+        </Button>
+      </ResponsiveFilterBar>
 
       {isMobile ? (
         <MobileCardList

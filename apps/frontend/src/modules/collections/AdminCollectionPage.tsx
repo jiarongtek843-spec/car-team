@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Input, Select, Space, Typography } from "antd";
+import { Button, Input, Select, Space, Typography } from "antd";
+import { SearchOutlined } from "@ant-design/icons";
 import { useAdminCollectionsQuery, useVerifyCollectionMutation } from "./hooks";
 import { useDriversQuery } from "../drivers/hooks";
 import { CollectionTable } from "./components/CollectionTable";
@@ -8,6 +9,7 @@ import { PAYMENT_METHOD_LABELS, PURPOSE_LABELS, STATUS_LABELS } from "./types";
 import type { Collection, CollectionPaymentMethod, CollectionPurpose, CollectionStatus } from "./types";
 import { PermissionGate } from "../auth/PermissionGate";
 import { PERMISSIONS } from "../../common/permissions";
+import { ResponsiveFilterBar } from "../../common/ResponsiveFilterBar";
 
 export function AdminCollectionPage() {
   const [driverId, setDriverId] = useState<number | undefined>(undefined);
@@ -15,6 +17,7 @@ export function AdminCollectionPage() {
   const [paymentMethod, setPaymentMethod] = useState<CollectionPaymentMethod | undefined>(undefined);
   const [purpose, setPurpose] = useState<CollectionPurpose | undefined>(undefined);
   const [search, setSearch] = useState<string>("");
+  const [searchInput, setSearchInput] = useState<string>("");
   const [page, setPage] = useState(1);
   const [voidingId, setVoidingId] = useState<number | null>(null);
   const pageSize = 20;
@@ -38,11 +41,16 @@ export function AdminCollectionPage() {
     };
   }
 
+  function runSearch() {
+    setSearch(searchInput.trim());
+    setPage(1);
+  }
+
   return (
     <div style={{ padding: 24 }}>
       <Typography.Title level={4}>Collection（代收款）</Typography.Title>
 
-      <Space style={{ marginBottom: 16 }} wrap>
+      <ResponsiveFilterBar>
         <Select
           allowClear
           placeholder="筛选 Driver"
@@ -75,13 +83,18 @@ export function AdminCollectionPage() {
           value={purpose}
           onChange={resetPageAnd(setPurpose)}
         />
-        <Input.Search
+        <Input
           allowClear
           placeholder="搜索 Customer / Remark"
           style={{ width: 220 }}
-          onSearch={resetPageAnd(setSearch)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onPressEnter={runSearch}
         />
-      </Space>
+        <Button type="primary" icon={<SearchOutlined />} style={{ height: 44 }} onClick={runSearch}>
+          搜索
+        </Button>
+      </ResponsiveFilterBar>
 
       <CollectionTable
         data={data?.data}

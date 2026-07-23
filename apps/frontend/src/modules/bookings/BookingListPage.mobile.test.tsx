@@ -3,11 +3,12 @@ import { screen } from "@testing-library/react";
 import { renderWithProviders } from "../../test/renderWithProviders";
 import { BookingListPage } from "./BookingListPage";
 
-// Critical Bug 2 回归测试：手机版 Booking Search 之前用 antd 的 Input.Search，内建的紧凑
-// 搜索按钮宽度固定，窄屏（320/375/390/430px）下会把姓名输入框挤得很窄、整体不协调。
-// jsdom 量不出真实的像素宽度/是否横向溢出，所以这里用「用了哪个组件结构」当替代验证：
-// 手机版必须是 Status Filter / 姓名 Input / 独立 Search Button 三个各自独占一行的区块，
-// 而不是把搜索按钮内嵌在紧凑的 Input.Search 里。
+// Critical Bug 2 + Mobile UX Sprint 回归测试：手机版 Booking Search 之前用 antd 的
+// Input.Search，内建的紧凑搜索按钮宽度固定，窄屏（320/375/390/430px）下会把姓名输入框
+// 挤得很窄、整体不协调。现在改用共享的 ResponsiveFilterBar（见 common/ResponsiveFilterBar.tsx）：
+// 手机版用 index.css 的 .responsive-filter-bar--mobile 规则强制每个直接子元素 width:100%，
+// jsdom 不会真的套用外部 CSS 文件，所以这里验证的是「有没有正确接上这个机制」（vertical
+// 排列 + 挂上对应 class name），不是量测实际计算出来的像素宽度。
 vi.mock("../../common/useIsMobile", () => ({ useIsMobile: () => true }));
 
 vi.mock("./components/CreateBookingModal", () => ({
@@ -19,7 +20,7 @@ vi.mock("./hooks", () => ({
 }));
 
 describe("BookingListPage 手机版搜索区（Bug 2 回归测试）", () => {
-  it("Status Filter、Girl 姓名输入框、Search 按钮各自独占一行，不用紧凑的 Input.Search", () => {
+  it("Status Filter、Girl 姓名输入框、Search 按钮用 ResponsiveFilterBar 垂直排列，不用紧凑的 Input.Search", () => {
     renderWithProviders(<BookingListPage />);
 
     // 不能是内建紧凑搜索框（那个组件把输入框跟按钮绑在同一个宽度受限的容器里）。
@@ -34,11 +35,13 @@ describe("BookingListPage 手机版搜索区（Bug 2 回归测试）", () => {
     expect(input).toBeInTheDocument();
     expect(searchButton).toBeInTheDocument();
 
-    // 三者都应该是 100% 宽度的独立区块（垂直堆叠），不是同一行里彼此挤压。
-    // allowClear 时 antd 把 width 样式放在外层 .ant-input-affix-wrapper，不是 <input> 本身。
-    expect((select as HTMLElement).style.width).toBe("100%");
-    const inputWrapper = input.closest(".ant-input-affix-wrapper") as HTMLElement;
-    expect(inputWrapper.style.width).toBe("100%");
+    // 手机版一定要挂上 ResponsiveFilterBar 的 mobile class + 垂直排列，
+    // index.css 才会真的把三个控件强制变成各占一行。
+    const filterBar = select!.closest(".responsive-filter-bar--mobile");
+    expect(filterBar).not.toBeNull();
+    expect(filterBar).toHaveClass("ant-space-vertical");
+    expect(filterBar!.contains(input)).toBe(true);
+    expect(filterBar!.contains(searchButton)).toBe(true);
   });
 
   it("Search 按钮触控高度 >= 44px（手机触控目标最小尺寸）", () => {

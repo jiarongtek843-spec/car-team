@@ -237,6 +237,91 @@ describe("Dispatch Center aggregation (Module 6 scenarios)", () => {
     expect(byPhone.map((r) => r.driver.id)).toContain(driver.id);
   });
 
+  it("COMPLETED filter only shows legs completed on the given date, not other days or other statuses", async () => {
+    const driver = await createTestDriver("Completed Filter Driver");
+    driverIds.push(driver.id);
+
+    const booking = await bookingsService.createBooking({
+      girlName: "DispatchCompletedFilter",
+      totalAmountCents: 0,
+      legs: [
+        { pickupLocation: "A", dropoffLocation: "B" },
+        { pickupLocation: "C", dropoffLocation: "D" },
+        { pickupLocation: "E", dropoffLocation: "F" }
+      ]
+    });
+    bookingIds.push(booking.id);
+    const [completedToday, completedYesterday, stillWaiting] = booking.legs;
+
+    await prisma.leg.update({
+      where: { id: completedToday.id },
+      data: { status: "COMPLETED", driverId: driver.id, completedAt: new Date() }
+    });
+    await prisma.leg.update({
+      where: { id: completedYesterday.id },
+      data: { status: "COMPLETED", driverId: driver.id, completedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+    });
+
+    const todayResults = await dispatchService.listWaitingBookings({ filter: "COMPLETED" });
+    const todayLegIds = todayResults.map((r) => r.legId);
+
+    expect(todayLegIds).toContain(completedToday.id);
+    expect(todayLegIds).not.toContain(completedYesterday.id);
+    // 不属于「已完成」的 Leg（还在等派）永远不该出现在 Completed 视图里，不管日期怎么选。
+    expect(todayLegIds).not.toContain(stillWaiting.id);
+
+    // 不给 filter 时（Waiting/Active 视图的「全部」）也不该混进已完成的 Leg。
+    const defaultResults = await dispatchService.listWaitingBookings({});
+    expect(defaultResults.map((r) => r.legId)).not.toContain(completedToday.id);
+  });
+
+  it("COMPLETED filter with an explicit date only shows legs completed on that day", async () => {
+    const driver = await createTestDriver("Completed Date Filter Driver");
+    driverIds.push(driver.id);
+
+    const booking = await bookingsService.createBooking({
+      girlName: "DispatchCompletedDateFilter",
+      totalAmountCents: 0,
+      legs: [{ pickupLocation: "A", dropoffLocation: "B" }]
+    });
+    bookingIds.push(booking.id);
+    const [leg] = booking.legs;
+
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    await prisma.leg.update({
+      where: { id: leg.id },
+      data: { status: "COMPLETED", driverId: driver.id, completedAt: threeDaysAgo }
+    });
+
+    // 本地日历日期字串，跟 dispatch.service.ts 的 startOfLocalDay()（用 getFullYear/getMonth/
+    // getDate，不是 UTC）保持一致——用 toISOString().slice(0,10)（UTC 日期）在非 UTC 时区
+    // 会跟 completedAt 这个真实时间点的本地日期对不上，等于重现了 Settlement periodEnd
+    // 那个 UTC-parse 混本地-setHours 的同一类日期边界 Bug，而不是在测 Dispatch 本身的逻辑。
+    const dateStr = `${threeDaysAgo.getFullYear()}-${String(threeDaysAgo.getMonth() + 1).padStart(2, "0")}-${String(threeDaysAgo.getDate()).padStart(2, "0")}`;
+    const matched = await dispatchService.listWaitingBookings({ filter: "COMPLETED", date: dateStr });
+    expect(matched.map((r) => r.legId)).toContain(leg.id);
+
+    const todayResults = await dispatchService.listWaitingBookings({ filter: "COMPLETED" });
+    expect(todayResults.map((r) => r.legId)).not.toContain(leg.id);
+  });
+
+  it("listWaitingBookings exposes legType for each leg (OUTBOUND/RETURN/ADDITIONAL)", async () => {
+    const booking = await bookingsService.createBooking({
+      girlName: "DispatchLegType",
+      totalAmountCents: 0,
+      legs: [
+        { legType: "OUTBOUND", pickupLocation: "A", dropoffLocation: "B" },
+        { legType: "RETURN", pickupLocation: "B", dropoffLocation: "A" }
+      ]
+    });
+    bookingIds.push(booking.id);
+    const [outboundLeg, returnLeg] = booking.legs;
+
+    const results = await dispatchService.listWaitingBookings({});
+    expect(results.find((r) => r.legId === outboundLeg.id)?.legType).toBe("OUTBOUND");
+    expect(results.find((r) => r.legId === returnLeg.id)?.legType).toBe("RETURN");
+  });
+
   it("getDispatchStatistics counts match the underlying leg/driver states", async () => {
     const driver = await createTestDriver("Statistics Driver");
     driverIds.push(driver.id);

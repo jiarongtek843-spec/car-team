@@ -100,3 +100,20 @@ body {
     max-width: 100%;
   }
 }
+
+/* Mobile UX + Scheduling Sprint：ResponsiveFilterBar 手机版让每个 filter 控件独占一行。
+   用 !important 是因为很多页面的 Select/Input 本来就带自己的桌面用 inline style width
+   （例如 style={{width:160}}），CSS !important 是少数能盖过 inline style 的手段——
+   这样各页面不需要为了配合手机版而拆掉自己原本的桌面 inline width。 */
+.responsive-filter-bar--mobile > .ant-space-item {
+  width: 100%;
+}
+
+.responsive-filter-bar--mobile .ant-select,
+.responsive-filter-bar--mobile .ant-picker,
+.responsive-filter-bar--mobile .ant-input,
+.responsive-filter-bar--mobile .ant-input-affix-wrapper,
+.responsive-filter-bar--mobile .ant-input-number,
+.responsive-filter-bar--mobile > .ant-space-item > .ant-btn {
+  width: 100% !important;
+}

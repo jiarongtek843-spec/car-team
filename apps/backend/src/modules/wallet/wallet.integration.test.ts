@@ -416,6 +416,41 @@ describe("Financial hardening scenarios", () => {
     expect(stillPending.status).toBe("PENDING");
   });
 
+  it("includes a transaction whose effectiveDate is exactly periodStart===periodEnd (regression: UTC-parse vs local-setHours day-boundary bug)", async () => {
+    // Mobile UX + Scheduling Sprint 用「自动选择全部未结算日期」测出来的真实 Bug：Settlement
+    // 的 periodStart/periodEnd 之前是用 startOfDay(new Date("YYYY-MM-DD")) 算出来的——
+    // date-only 字串丢给 new Date() 一律被当成 UTC 午夜解析，但 startOfDay() 的 setHours()
+    // 是用伺服器「本地」时区运算，两者混用会让 periodStart/periodEnd 偷偷偏移几个小时（伺服器
+    // 时区不是 UTC 时就会发生，Railway/本地开发常见是 UTC+8），偏移方向依时区而定：使用者
+    // 选的日期范围明明包含这笔资料的日期，画面却显示「周期外待结算」。这里刻意用跟
+    // parsePeriod 现在的写法（拆 Y/M/D 直接组本地 Date）完全一致的方式构造 effectiveDate，
+    // 直接验证「插入时用的日期」跟「查询时选的同一天」不会因为解析方式不同而对不起来。
+    const driver = await createTestDriver("Same Day Boundary Driver");
+    driverIds.push(driver.id);
+
+    const dateStr = toDateStr(new Date());
+    const [year, month, day] = dateStr.split("-").map(Number);
+    const effectiveDate = new Date(year, month - 1, day);
+
+    await prisma.walletTransaction.create({
+      data: {
+        driverId: driver.id,
+        transactionType: "MANUAL_ADJUSTMENT",
+        source: "MANUAL",
+        amountCents: 750,
+        description: "Same day boundary test",
+        status: "PENDING",
+        effectiveDate,
+        createdBy: systemActor.id
+      }
+    });
+
+    const preview = await settlementService.previewSettlement(driver.id, dateStr, dateStr);
+
+    expect(preview.transactions.map((t) => t.amountCents)).toContain(750);
+    expect(preview.excludedTransactions.map((t) => t.amountCents)).not.toContain(750);
+  });
+
   it("generates unique settlement references for two drivers settled at the same time", async () => {
     const driverA = await createTestDriver("Hardening Concurrency Driver A");
     const driverB = await createTestDriver("Hardening Concurrency Driver B");

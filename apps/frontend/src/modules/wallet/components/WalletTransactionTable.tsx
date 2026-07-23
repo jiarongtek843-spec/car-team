@@ -17,7 +17,7 @@ const STATUS_LABEL: Record<WalletTransactionStatus, string> = {
   VOIDED: "已作废"
 };
 
-const TYPE_LABEL: Record<WalletTransaction["transactionType"], string> = {
+export const TYPE_LABEL: Record<WalletTransaction["transactionType"], string> = {
   LEG_EARNING: "Leg Earning",
   MANUAL_ADJUSTMENT: "Manual Adjustment",
   SETTLEMENT_ADJUSTMENT: "Settlement Adjustment"

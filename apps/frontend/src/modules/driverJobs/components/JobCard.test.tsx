@@ -16,6 +16,7 @@ function makeLeg(overrides: Partial<DriverLeg>): DriverLeg {
     id: 1,
     bookingId: 10,
     sequence: 1,
+    legType: "OUTBOUND",
     driverId: 1,
     pickupLocation: "A",
     dropoffLocation: "B",

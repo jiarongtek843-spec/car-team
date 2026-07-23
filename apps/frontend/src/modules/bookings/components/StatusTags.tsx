@@ -1,5 +1,5 @@
 import { Tag } from "antd";
-import type { BookingStatus, LegStatus } from "../../../types/booking";
+import type { BookingStatus, LegStatus, LegType } from "../../../types/booking";
 
 const BOOKING_STATUS_LABEL: Record<BookingStatus, string> = {
   PENDING: "待处理",
@@ -43,4 +43,20 @@ const LEG_STATUS_COLOR: Record<LegStatus, string> = {
 
 export function LegStatusTag({ status }: { status: LegStatus }) {
   return <Tag color={LEG_STATUS_COLOR[status]}>{LEG_STATUS_LABEL[status]}</Tag>;
+}
+
+export const LEG_TYPE_LABEL: Record<LegType, string> = {
+  OUTBOUND: "去程",
+  RETURN: "回程",
+  ADDITIONAL: "额外行程"
+};
+
+const LEG_TYPE_COLOR: Record<LegType, string> = {
+  OUTBOUND: "blue",
+  RETURN: "purple",
+  ADDITIONAL: "default"
+};
+
+export function LegTypeTag({ legType }: { legType: LegType }) {
+  return <Tag color={LEG_TYPE_COLOR[legType]}>{LEG_TYPE_LABEL[legType]}</Tag>;
 }

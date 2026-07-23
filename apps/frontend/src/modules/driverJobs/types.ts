@@ -1,9 +1,10 @@
-import type { BookingStatus, LegStatus } from "../../types/booking";
+import type { BookingStatus, LegStatus, LegType } from "../../types/booking";
 
 export interface DriverLeg {
   id: number;
   bookingId: number;
   sequence: number;
+  legType: LegType;
   driverId: number | null;
   pickupLocation: string | null;
   dropoffLocation: string | null;

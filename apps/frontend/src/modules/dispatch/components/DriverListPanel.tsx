@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Alert, Button, Card, Empty, Input, List, Select, Space, Tag, Typography, message } from "antd";
+import { SearchOutlined } from "@ant-design/icons";
 import { useDispatchAssignMutation, useDispatchDriversQuery } from "../hooks";
 import { GPS_STATUS_COLOR, GPS_STATUS_LABELS } from "../types";
 import type { DispatchWaitingLeg, DriverDispatchFilter } from "../types";
+import { ResponsiveFilterBar } from "../../../common/ResponsiveFilterBar";
 
 const FILTER_OPTIONS: { label: string; value: DriverDispatchFilter | "ALL" }[] = [
   { label: "全部", value: "ALL" },
@@ -28,8 +30,13 @@ export function DriverListPanel({
 }) {
   const [filter, setFilter] = useState<DriverDispatchFilter | "ALL">("ALL");
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const { data, isLoading } = useDispatchDriversQuery(filter === "ALL" ? undefined : filter, search);
   const assign = useDispatchAssignMutation();
+
+  function runSearch() {
+    setSearch(searchInput.trim());
+  }
 
   async function handleAssign(driverId: number) {
     if (!selectedLeg) return;
@@ -57,15 +64,25 @@ export function DriverListPanel({
         <Alert type="info" showIcon style={{ marginBottom: 12 }} message="先在左边选一笔 Booking，才能指派 Driver" />
       )}
 
-      <Space style={{ marginBottom: 12 }} wrap>
+      <ResponsiveFilterBar>
         <Select
           style={{ width: 160 }}
           options={FILTER_OPTIONS}
           value={filter}
           onChange={(v) => setFilter(v as DriverDispatchFilter | "ALL")}
         />
-        <Input.Search allowClear placeholder="搜索 Driver 姓名 / 电话" onSearch={setSearch} style={{ width: 200 }} />
-      </Space>
+        <Input
+          allowClear
+          placeholder="搜索 Driver 姓名 / 电话"
+          style={{ width: 200 }}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onPressEnter={runSearch}
+        />
+        <Button icon={<SearchOutlined />} style={{ height: 44 }} onClick={runSearch}>
+          搜索
+        </Button>
+      </ResponsiveFilterBar>
 
       {!isLoading && (!data || data.length === 0) ? (
         <Empty description="没有符合条件的 Driver" />

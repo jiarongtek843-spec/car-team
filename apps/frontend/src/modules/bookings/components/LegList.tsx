@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { List, Popconfirm, Space, Typography, message } from "antd";
 import type { Leg } from "../../../types/booking";
-import { LegStatusTag } from "./StatusTags";
+import { LegStatusTag, LegTypeTag } from "./StatusTags";
 import { AssignDriverModal } from "./AssignDriverModal";
 import { EditAllocationModal } from "./EditAllocationModal";
 import { useCancelLegMutation, useDeleteLegMutation } from "../hooks";
 import { formatCents } from "../../../lib/money";
+import { formatLegDateTime } from "../../../lib/schedule";
 import { DriverPresenceBadge } from "./DriverPresenceBadge";
 
 const PRESENCE_TRACKED_STATUSES: Leg["status"][] = ["ASSIGNED", "ACCEPTED", "DRIVER_ARRIVING", "PASSENGER_ON_BOARD"];
@@ -76,6 +77,7 @@ export function LegList({ bookingId, legs }: { bookingId: number; legs: Leg[] })
               title={
                 <Space>
                   <Typography.Text strong>Leg {leg.sequence}</Typography.Text>
+                  <LegTypeTag legType={leg.legType} />
                   <LegStatusTag status={leg.status} />
                 </Space>
               }
@@ -85,7 +87,7 @@ export function LegList({ bookingId, legs }: { bookingId: number; legs: Leg[] })
                     {leg.pickupLocation ?? "—"} → {leg.dropoffLocation ?? "—"}
                   </Typography.Text>
                   <Typography.Text type="secondary">
-                    {leg.scheduledAt ? new Date(leg.scheduledAt).toLocaleString() : "未设定时间"}
+                    预定时间：{formatLegDateTime(leg.scheduledAt)}
                     {" · "}
                     司机：{leg.driver ? leg.driver.name : "未指派"}
                     {" · "}

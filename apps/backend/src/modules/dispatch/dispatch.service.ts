@@ -10,7 +10,7 @@ import { computePresenceStatus, getPresenceThresholds, type DriverPresenceStatus
  * 不重新实现指派逻辑。
  */
 
-export type BookingDispatchFilter = "WAITING" | "ASSIGNED" | "ACCEPTED" | "IN_PROGRESS";
+export type BookingDispatchFilter = "WAITING" | "ASSIGNED" | "ACCEPTED" | "IN_PROGRESS" | "COMPLETED";
 export type DriverDispatchFilter = "ONLINE" | "OFFLINE" | "CONNECTION_LOST" | "BUSY" | "IDLE";
 export type DispatchPriority = "NORMAL" | "HIGH" | "URGENT";
 
@@ -29,6 +29,13 @@ const DISPATCH_VISIBLE_STATUSES: LegStatus[] = [
 
 function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function localDayRange(date: Date) {
+  const start = startOfLocalDay(date);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { gte: start, lt: end };
 }
 
 /**
@@ -53,6 +60,8 @@ function statusesForBookingFilter(filter: BookingDispatchFilter | undefined): Le
       return ["ACCEPTED"];
     case "IN_PROGRESS":
       return IN_PROGRESS_STATUSES;
+    case "COMPLETED":
+      return ["COMPLETED"];
     default:
       return DISPATCH_VISIBLE_STATUSES;
   }
@@ -61,9 +70,11 @@ function statusesForBookingFilter(filter: BookingDispatchFilter | undefined): Le
 interface ListWaitingBookingsParams {
   filter?: BookingDispatchFilter;
   search?: string;
+  /** 只在 filter === "COMPLETED" 时有意义：要看哪一天完成的 Leg，YYYY-MM-DD，默认今天。 */
+  date?: string;
 }
 
-export async function listWaitingBookings({ filter, search }: ListWaitingBookingsParams) {
+export async function listWaitingBookings({ filter, search, date }: ListWaitingBookingsParams) {
   const trimmedSearch = search?.trim();
   const searchAsId = trimmedSearch && /^\d+$/.test(trimmedSearch) ? Number(trimmedSearch) : undefined;
 
@@ -76,7 +87,8 @@ export async function listWaitingBookings({ filter, search }: ListWaitingBooking
             ...(searchAsId !== undefined ? [{ id: searchAsId }] : [])
           ]
         }
-      : undefined
+      : undefined,
+    ...(filter === "COMPLETED" ? { completedAt: localDayRange(date ? new Date(date) : new Date()) } : {})
   };
 
   const legs = await prisma.leg.findMany({
@@ -85,7 +97,10 @@ export async function listWaitingBookings({ filter, search }: ListWaitingBooking
       booking: { select: { id: true, girlName: true, status: true, createdAt: true } },
       driver: { select: { id: true, name: true, vehiclePlateNumber: true } }
     },
-    orderBy: [{ booking: { createdAt: "asc" } }, { sequence: "asc" }],
+    orderBy:
+      filter === "COMPLETED"
+        ? [{ completedAt: "desc" }]
+        : [{ booking: { createdAt: "asc" } }, { sequence: "asc" }],
     take: 500
   });
 
@@ -97,9 +112,11 @@ export async function listWaitingBookings({ filter, search }: ListWaitingBooking
     girlName: leg.booking.girlName,
     bookingStatus: leg.booking.status,
     sequence: leg.sequence,
+    legType: leg.legType,
     pickupLocation: leg.pickupLocation,
     dropoffLocation: leg.dropoffLocation,
     scheduledAt: leg.scheduledAt,
+    completedAt: leg.completedAt,
     bookingCreatedAt: leg.booking.createdAt,
     priority: derivePriority(leg.booking.createdAt, now),
     status: leg.status,

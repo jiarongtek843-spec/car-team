@@ -1,4 +1,4 @@
-import type { BookingStatus, CommissionType, FinancialVersion, Prisma } from "@prisma/client";
+import type { BookingStatus, CommissionType, FinancialVersion, LegType, Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { deriveBookingStatus } from "./bookings.status.js";
@@ -63,9 +63,11 @@ export async function getBookingById(id: number) {
 }
 
 interface CreateLegInput {
+  legType?: LegType;
   pickupLocation?: string;
   dropoffLocation?: string;
-  scheduledAt?: string;
+  // undefined = 没带这个栏位；null = 明确选择「时间未定」；string = 实际时间。
+  scheduledAt?: string | null;
   driverId?: number;
   notes?: string;
   earningAllocationCents?: number;
@@ -136,9 +138,10 @@ export async function createBooking(input: CreateBookingInput, actor: AuditActor
           ? {
               create: legs.map((leg, index) => ({
                 sequence: index + 1,
+                legType: leg.legType,
                 pickupLocation: leg.pickupLocation,
                 dropoffLocation: leg.dropoffLocation,
-                scheduledAt: leg.scheduledAt ? new Date(leg.scheduledAt) : undefined,
+                scheduledAt: leg.scheduledAt === null ? null : leg.scheduledAt ? new Date(leg.scheduledAt) : undefined,
                 driverId: leg.driverId,
                 notes: leg.notes,
                 earningAllocationCents: leg.earningAllocationCents

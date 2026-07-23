@@ -1,3 +1,4 @@
+import type { LegType } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { recalculateBookingStatus } from "./bookings.service.js";
@@ -50,12 +51,20 @@ async function assertAllocationFits(bookingId: number, newAllocationCents: numbe
 }
 
 interface AddLegInput {
+  legType?: LegType;
   pickupLocation?: string;
   dropoffLocation?: string;
-  scheduledAt?: string;
+  // undefined = 没带这个栏位；null = 明确选择「时间未定」；string = 实际时间。
+  scheduledAt?: string | null;
   driverId?: number;
   notes?: string;
   earningAllocationCents?: number;
+}
+
+function resolveScheduledAt(scheduledAt: string | null | undefined): Date | null | undefined {
+  if (scheduledAt === undefined) return undefined;
+  if (scheduledAt === null) return null;
+  return new Date(scheduledAt);
 }
 
 export async function addLeg(bookingId: number, input: AddLegInput) {
@@ -80,9 +89,10 @@ export async function addLeg(bookingId: number, input: AddLegInput) {
     data: {
       bookingId,
       sequence: (lastLeg?.sequence ?? 0) + 1,
+      legType: input.legType,
       pickupLocation: input.pickupLocation,
       dropoffLocation: input.dropoffLocation,
-      scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : undefined,
+      scheduledAt: resolveScheduledAt(input.scheduledAt),
       driverId: input.driverId,
       notes: input.notes,
       earningAllocationCents: input.earningAllocationCents
@@ -93,9 +103,10 @@ export async function addLeg(bookingId: number, input: AddLegInput) {
 }
 
 interface UpdateLegInput {
+  legType?: LegType;
   pickupLocation?: string;
   dropoffLocation?: string;
-  scheduledAt?: string;
+  scheduledAt?: string | null;
   notes?: string;
   earningAllocationCents?: number;
 }
@@ -119,9 +130,10 @@ export async function updateLeg(bookingId: number, legId: number, input: UpdateL
   await prisma.leg.update({
     where: { id: legId },
     data: {
+      legType: input.legType,
       pickupLocation: input.pickupLocation,
       dropoffLocation: input.dropoffLocation,
-      scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : undefined,
+      scheduledAt: resolveScheduledAt(input.scheduledAt),
       notes: input.notes,
       earningAllocationCents: input.earningAllocationCents
     }

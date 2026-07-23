@@ -3,6 +3,8 @@ import type { ColumnsType } from "antd/es/table";
 import type { Collection, CollectionStatus } from "../types";
 import { PAYMENT_METHOD_LABELS, PURPOSE_LABELS, STATUS_LABELS } from "../types";
 import { formatCents } from "../../../lib/money";
+import { useIsMobile } from "../../../common/useIsMobile";
+import { MobileCardList } from "../../../common/MobileCardList";
 
 const STATUS_COLOR: Record<CollectionStatus, string> = {
   PENDING: "default",
@@ -27,6 +29,7 @@ export function CollectionTable({
   actions?: (record: Collection) => React.ReactNode;
   pagination?: false | { current: number; pageSize: number; total: number; onChange: (page: number) => void };
 }) {
+  const isMobile = useIsMobile();
   const columns: ColumnsType<Collection> = [
     ...(showDriverColumn
       ? [{ title: "Driver", render: (_: unknown, record: Collection) => record.driver?.name ?? "-" }]
@@ -57,6 +60,19 @@ export function CollectionTable({
     { title: "Remark", dataIndex: "remark", render: (v: string | null) => v ?? "-" },
     ...(actions ? [{ title: "操作", render: (_: unknown, record: Collection) => actions(record) }] : [])
   ];
+
+  if (isMobile) {
+    return (
+      <MobileCardList
+        rowKey="id"
+        loading={loading}
+        dataSource={data}
+        columns={columns}
+        pagination={pagination === false ? undefined : pagination}
+        emptyText="没有代收款纪录"
+      />
+    );
+  }
 
   return (
     <Table

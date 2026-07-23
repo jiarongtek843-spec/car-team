@@ -2,12 +2,13 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import * as dispatchService from "./dispatch.service.js";
 
-const bookingFilterSchema = z.enum(["WAITING", "ASSIGNED", "ACCEPTED", "IN_PROGRESS"]).optional();
+const bookingFilterSchema = z.enum(["WAITING", "ASSIGNED", "ACCEPTED", "IN_PROGRESS", "COMPLETED"]).optional();
 const driverFilterSchema = z.enum(["ONLINE", "OFFLINE", "CONNECTION_LOST", "BUSY", "IDLE"]).optional();
 
 const listBookingsQuerySchema = z.object({
   filter: bookingFilterSchema,
-  search: z.string().optional()
+  search: z.string().optional(),
+  date: z.string().date().optional()
 });
 
 const listDriversQuerySchema = z.object({

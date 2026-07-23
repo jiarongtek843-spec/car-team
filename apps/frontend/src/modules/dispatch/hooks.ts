@@ -7,10 +7,10 @@ import type { BookingDispatchFilter, DriverDispatchFilter } from "./types";
 // 在 100+ Driver / 500+ Booking 的规模下这个频率对 Backend/DB 是合理的负担。
 const POLL_INTERVAL_MS = 5000;
 
-export function useWaitingBookingsQuery(filter: BookingDispatchFilter | undefined, search: string) {
+export function useWaitingBookingsQuery(filter: BookingDispatchFilter | undefined, search: string, date?: string) {
   return useQuery({
-    queryKey: ["dispatch", "waiting-bookings", filter, search],
-    queryFn: () => dispatchApi.fetchWaitingBookings({ filter, search: search || undefined }),
+    queryKey: ["dispatch", "waiting-bookings", filter, search, date],
+    queryFn: () => dispatchApi.fetchWaitingBookings({ filter, search: search || undefined, date }),
     refetchInterval: POLL_INTERVAL_MS
   });
 }

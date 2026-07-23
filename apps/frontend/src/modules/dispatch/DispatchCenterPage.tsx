@@ -9,6 +9,8 @@ import { useIsMobile } from "../../common/useIsMobile";
 export function DispatchCenterPage() {
   const [selectedLeg, setSelectedLeg] = useState<DispatchWaitingLeg | null>(null);
   const [driverSheetOpen, setDriverSheetOpen] = useState(false);
+  const [activeMobileTab, setActiveMobileTab] = useState("waiting");
+  const [completedDrawerOpen, setCompletedDrawerOpen] = useState(false);
   const { data: stats } = useDispatchStatisticsQuery();
   const isMobile = useIsMobile();
 
@@ -20,6 +22,17 @@ export function DispatchCenterPage() {
   function handleAssignedMobile() {
     setSelectedLeg(null);
     setDriverSheetOpen(false);
+  }
+
+  // Completed Today 数字要能直接点进 Completed 视图，不用先自己找 Tab——手机切
+  // Tab，桌面（本来就没有 Tab，只有左右两栏）开一个 Drawer，两边都是「独立入口」，
+  // 不会跟 Waiting/Active 的既有列表混在一起。
+  function handleCompletedTodayClick() {
+    if (isMobile) {
+      setActiveMobileTab("completed");
+    } else {
+      setCompletedDrawerOpen(true);
+    }
   }
 
   return (
@@ -45,7 +58,7 @@ export function DispatchCenterPage() {
           </Card>
         </Col>
         <Col xs={12} sm={8} md={4}>
-          <Card size="small">
+          <Card size="small" hoverable onClick={handleCompletedTodayClick} style={{ cursor: "pointer" }}>
             <Statistic title="Completed Today" value={stats?.completedToday ?? 0} />
           </Card>
         </Col>
@@ -72,6 +85,8 @@ export function DispatchCenterPage() {
       {isMobile ? (
         <>
           <Tabs
+            activeKey={activeMobileTab}
+            onChange={setActiveMobileTab}
             items={[
               {
                 key: "waiting",
@@ -100,6 +115,18 @@ export function DispatchCenterPage() {
                     title="Active Jobs"
                   />
                 )
+              },
+              {
+                key: "completed",
+                label: "Completed",
+                children: (
+                  <WaitingBookingsPanel
+                    selectedLegId={null}
+                    onSelectLeg={() => {}}
+                    defaultFilter="COMPLETED"
+                    title="Completed"
+                  />
+                )
               }
             ]}
           />
@@ -115,14 +142,30 @@ export function DispatchCenterPage() {
           </Drawer>
         </>
       ) : (
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={12}>
-            <WaitingBookingsPanel selectedLegId={selectedLeg?.legId ?? null} onSelectLeg={setSelectedLeg} />
-          </Col>
-          <Col xs={24} lg={12}>
-            <DriverListPanel selectedLeg={selectedLeg} onAssigned={() => setSelectedLeg(null)} />
-          </Col>
-        </Row>
+        <>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} lg={12}>
+              <WaitingBookingsPanel selectedLegId={selectedLeg?.legId ?? null} onSelectLeg={setSelectedLeg} />
+            </Col>
+            <Col xs={24} lg={12}>
+              <DriverListPanel selectedLeg={selectedLeg} onAssigned={() => setSelectedLeg(null)} />
+            </Col>
+          </Row>
+          <Drawer
+            title="Completed"
+            placement="right"
+            width={480}
+            open={completedDrawerOpen}
+            onClose={() => setCompletedDrawerOpen(false)}
+          >
+            <WaitingBookingsPanel
+              selectedLegId={null}
+              onSelectLeg={() => {}}
+              defaultFilter="COMPLETED"
+              title="Completed"
+            />
+          </Drawer>
+        </>
       )}
     </div>
   );
