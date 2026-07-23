@@ -25,7 +25,7 @@ import { uploadsRoot } from "./common/upload.js";
 export const app = express();
 
 app.set("trust proxy", 1);
-app.use(cors({ origin: env.corsOrigin, credentials: true }));
+app.use(cors({ origin: env.corsOrigins, credentials: true }));
 app.use(express.json());
 app.use(sessionMiddleware);
 // nosniff：就算未来哪个副档名判断出错、存进去一个内容跟副档名对不上的档案，也不让浏览器
