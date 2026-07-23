@@ -7,6 +7,8 @@ import { BookingStatusTag } from "./components/StatusTags";
 import { CreateBookingModal } from "./components/CreateBookingModal";
 import type { BookingListItem, BookingStatus } from "../../types/booking";
 import { formatCents } from "../../lib/money";
+import { useIsMobile } from "../../common/useIsMobile";
+import { MobileCardList } from "../../common/MobileCardList";
 
 const STATUS_OPTIONS: { label: string; value: BookingStatus }[] = [
   { label: "待处理", value: "PENDING" },
@@ -23,6 +25,7 @@ function legProgress(booking: BookingListItem) {
 
 export function BookingListPage() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [status, setStatus] = useState<BookingStatus | undefined>(undefined);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -48,24 +51,26 @@ export function BookingListPage() {
     }
   ];
 
+  function goToBooking(record: BookingListItem) {
+    navigate(`/bookings/${record.id}`);
+  }
+
   return (
-    <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }}>
-        <Space>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            Booking
-          </Typography.Title>
-        </Space>
+    <div style={{ padding: isMobile ? 12 : 24 }}>
+      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Booking
+        </Typography.Title>
         <Button type="primary" onClick={() => setCreateOpen(true)}>
           + 新建 Booking
         </Button>
       </Space>
 
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16, width: "100%" }} wrap>
         <Select
           allowClear
           placeholder="筛选状态"
-          style={{ width: 160 }}
+          style={{ width: isMobile ? "100%" : 160, minWidth: 160 }}
           options={STATUS_OPTIONS}
           value={status}
           onChange={(value) => {
@@ -75,7 +80,7 @@ export function BookingListPage() {
         />
         <Input.Search
           placeholder="搜索 Girl 姓名"
-          style={{ width: 240 }}
+          style={{ width: isMobile ? "100%" : 240, minWidth: 200 }}
           allowClear
           onSearch={(value) => {
             setSearch(value);
@@ -84,22 +89,34 @@ export function BookingListPage() {
         />
       </Space>
 
-      <Table
-        rowKey="id"
-        loading={isLoading}
-        dataSource={data?.data}
-        columns={columns}
-        onRow={(record) => ({
-          onClick: () => navigate(`/bookings/${record.id}`),
-          style: { cursor: "pointer" }
-        })}
-        pagination={{
-          current: page,
-          pageSize,
-          total: data?.total,
-          onChange: setPage
-        }}
-      />
+      {isMobile ? (
+        <MobileCardList
+          rowKey="id"
+          loading={isLoading}
+          dataSource={data?.data}
+          columns={columns}
+          onRowClick={goToBooking}
+          pagination={{ current: page, pageSize, total: data?.total, onChange: setPage }}
+          emptyText="没有符合条件的 Booking"
+        />
+      ) : (
+        <Table
+          rowKey="id"
+          loading={isLoading}
+          dataSource={data?.data}
+          columns={columns}
+          onRow={(record) => ({
+            onClick: () => goToBooking(record),
+            style: { cursor: "pointer" }
+          })}
+          pagination={{
+            current: page,
+            pageSize,
+            total: data?.total,
+            onChange: setPage
+          }}
+        />
+      )}
 
       <CreateBookingModal open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>

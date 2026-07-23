@@ -1,9 +1,10 @@
 import { useEffect } from "react";
-import { DatePicker, Form, Input, InputNumber, message, Modal, Radio, Select } from "antd";
+import { DatePicker, Form, Input, InputNumber, message, Radio, Select } from "antd";
 import dayjs from "dayjs";
 import { useCreateManualAdjustmentMutation, useCreateSettlementAdjustmentMutation } from "../hooks";
 import { useDriversQuery } from "../../drivers/hooks";
 import { ringgitToCents } from "../../../lib/money";
+import { ResponsiveModal } from "../../../common/ResponsiveModal";
 
 interface FormValues {
   driverId: number;
@@ -74,7 +75,7 @@ export function CreateAdjustmentModal({
   }
 
   return (
-    <Modal
+    <ResponsiveModal
       title={isSettlementAdjustment ? "新增 Settlement Adjustment" : "新增 Manual Adjustment"}
       open={open}
       onCancel={handleClose}
@@ -107,6 +108,6 @@ export function CreateAdjustmentModal({
           <DatePicker style={{ width: "100%" }} />
         </Form.Item>
       </Form>
-    </Modal>
+    </ResponsiveModal>
   );
 }

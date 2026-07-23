@@ -54,7 +54,7 @@ function sendOnePing() {
   );
 }
 
-export function DriverPresenceToggle() {
+export function DriverPresenceToggle({ light }: { light?: boolean } = {}) {
   const { data: presence } = useMyPresenceQuery();
   const goOnline = useGoOnlineMutation();
   const goOffline = useGoOfflineMutation();
@@ -97,7 +97,7 @@ export function DriverPresenceToggle() {
   return (
     <Space>
       <Switch checked={isOnline} onChange={handleToggle} loading={goOnline.isPending || goOffline.isPending} />
-      <Typography.Text style={{ color: "#fff" }}>{isOnline ? "Online" : "Offline"}</Typography.Text>
+      <Typography.Text style={light ? undefined : { color: "#fff" }}>{isOnline ? "Online" : "Offline"}</Typography.Text>
     </Space>
   );
 }

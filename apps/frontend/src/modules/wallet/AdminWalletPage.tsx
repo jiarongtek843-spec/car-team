@@ -9,6 +9,8 @@ import { formatCents } from "../../lib/money";
 import type { WalletTransactionStatus } from "./types";
 import { PermissionGate } from "../auth/PermissionGate";
 import { PERMISSIONS } from "../../common/permissions";
+import { useIsMobile } from "../../common/useIsMobile";
+import { MobileCardList } from "../../common/MobileCardList";
 
 const STATUS_OPTIONS: { label: string; value: WalletTransactionStatus }[] = [
   { label: "待结算", value: "PENDING" },
@@ -22,6 +24,7 @@ export function AdminWalletPage() {
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   const [page, setPage] = useState(1);
   const [adjustmentOpen, setAdjustmentOpen] = useState(false);
+  const isMobile = useIsMobile();
   const pageSize = 20;
 
   const { data: drivers } = useDriversQuery();
@@ -35,9 +38,14 @@ export function AdminWalletPage() {
     pageSize
   });
 
+  const unsettledColumns = [
+    { title: "Driver", render: (_: unknown, record: NonNullable<typeof unsettled>[number]) => record.driver?.name ?? `#${record.driverId}` },
+    { title: "Unsettled", dataIndex: "unsettledCents", render: (v: number) => formatCents(v) }
+  ];
+
   return (
-    <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }}>
+    <div style={{ padding: isMobile ? 12 : 24 }}>
+      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Typography.Title level={4} style={{ margin: 0 }}>
           Wallet
         </Typography.Title>
@@ -49,23 +57,18 @@ export function AdminWalletPage() {
       </Space>
 
       <Card title="Unsettled Earnings by Driver" style={{ marginBottom: 16 }}>
-        <Table
-          rowKey="driverId"
-          size="small"
-          dataSource={unsettled}
-          pagination={false}
-          columns={[
-            { title: "Driver", render: (_, record) => record.driver?.name ?? `#${record.driverId}` },
-            { title: "Unsettled", dataIndex: "unsettledCents", render: (v: number) => formatCents(v) }
-          ]}
-        />
+        {isMobile ? (
+          <MobileCardList rowKey="driverId" dataSource={unsettled} columns={unsettledColumns} emptyText="没有待结算金额" />
+        ) : (
+          <Table rowKey="driverId" size="small" dataSource={unsettled} pagination={false} columns={unsettledColumns} />
+        )}
       </Card>
 
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16, width: "100%" }} wrap>
         <Select
           allowClear
           placeholder="筛选 Driver"
-          style={{ width: 180 }}
+          style={{ width: isMobile ? "100%" : 180, minWidth: 160 }}
           options={drivers?.map((driver) => ({ label: driver.name, value: driver.id }))}
           value={driverId}
           onChange={(value) => {
@@ -76,7 +79,7 @@ export function AdminWalletPage() {
         <Select
           allowClear
           placeholder="筛选状态"
-          style={{ width: 160 }}
+          style={{ width: isMobile ? "100%" : 160, minWidth: 160 }}
           options={STATUS_OPTIONS}
           value={status}
           onChange={(value) => {
@@ -86,6 +89,7 @@ export function AdminWalletPage() {
         />
         <DatePicker.RangePicker
           value={dateRange}
+          style={{ width: isMobile ? "100%" : undefined }}
           onChange={(range) => {
             setDateRange(range as [dayjs.Dayjs, dayjs.Dayjs] | null);
             setPage(1);

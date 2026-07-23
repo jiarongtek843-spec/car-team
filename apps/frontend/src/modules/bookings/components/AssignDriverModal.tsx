@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Button, Divider, Form, Input, message, Modal, Select, Space } from "antd";
+import { Button, Divider, Form, Input, message, Select, Space } from "antd";
 import { useDriversQuery, useCreateDriverMutation } from "../../drivers/hooks";
 import { useAssignDriverMutation } from "../hooks";
+import { ResponsiveModal } from "../../../common/ResponsiveModal";
 
 interface Props {
   bookingId: number;
@@ -53,7 +54,7 @@ export function AssignDriverModal({ bookingId, legId, onClose }: Props) {
   }
 
   return (
-    <Modal
+    <ResponsiveModal
       title="指派司机"
       open={open}
       onCancel={handleClose}
@@ -86,6 +87,6 @@ export function AssignDriverModal({ bookingId, legId, onClose }: Props) {
           </Button>
         </Space.Compact>
       </Form>
-    </Modal>
+    </ResponsiveModal>
   );
 }

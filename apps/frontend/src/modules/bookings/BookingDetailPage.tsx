@@ -8,11 +8,13 @@ import { LegList } from "./components/LegList";
 import { AddLegModal } from "./components/AddLegModal";
 import { EditBookingModal } from "./components/EditBookingModal";
 import { formatCents } from "../../lib/money";
+import { useIsMobile } from "../../common/useIsMobile";
 
 export function BookingDetailPage() {
   const { id } = useParams();
   const bookingId = Number(id);
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [addLegOpen, setAddLegOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
@@ -45,14 +47,14 @@ export function BookingDetailPage() {
       : formatCents(booking.platformCommissionValue);
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: isMobile ? 12 : 24 }}>
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate("/")} style={{ paddingLeft: 0 }}>
         返回列表
       </Button>
 
       <Card
         title={
-          <Space>
+          <Space wrap>
             <Typography.Title level={4} style={{ margin: 0 }}>
               Booking #{booking.id}
             </Typography.Title>
@@ -60,7 +62,7 @@ export function BookingDetailPage() {
           </Space>
         }
         extra={
-          <Space>
+          <Space wrap>
             <Button onClick={() => setEditOpen(true)}>编辑</Button>
             {canCancel && (
               <Popconfirm
@@ -80,7 +82,7 @@ export function BookingDetailPage() {
         }
         style={{ marginBottom: 24 }}
       >
-        <Descriptions column={2}>
+        <Descriptions column={{ xs: 1, sm: 2 }}>
           <Descriptions.Item label="Girl 姓名">{booking.girlName}</Descriptions.Item>
           <Descriptions.Item label="建立时间">{new Date(booking.createdAt).toLocaleString()}</Descriptions.Item>
           <Descriptions.Item label="Booking Total">{formatCents(booking.totalAmountCents)}</Descriptions.Item>

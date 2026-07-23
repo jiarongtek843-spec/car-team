@@ -1,5 +1,6 @@
-import { Form, Input, message, Modal } from "antd";
+import { Form, Input, message } from "antd";
 import { useRejectLegMutation } from "../hooks";
+import { ResponsiveModal } from "../../../common/ResponsiveModal";
 
 interface FormValues {
   reason: string;
@@ -24,7 +25,7 @@ export function RejectLegModal({ legId, onClose }: { legId: number | null; onClo
   }
 
   return (
-    <Modal
+    <ResponsiveModal
       title="拒绝原因"
       open={open}
       onCancel={handleClose}
@@ -38,6 +39,6 @@ export function RejectLegModal({ legId, onClose }: { legId: number | null; onClo
           <Input.TextArea rows={3} />
         </Form.Item>
       </Form>
-    </Modal>
+    </ResponsiveModal>
   );
 }

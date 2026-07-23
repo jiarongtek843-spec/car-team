@@ -1,8 +1,10 @@
-import type { ReactNode } from "react";
-import { Layout, Menu, Space, Typography } from "antd";
+import { useState, type ReactNode } from "react";
+import { Button, Drawer, Layout, Menu, Space, Typography } from "antd";
+import { MenuOutlined } from "@ant-design/icons";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../modules/auth/AuthContext";
 import { PERMISSIONS, type PermissionKey } from "../common/permissions";
+import { useIsMobile } from "../common/useIsMobile";
 
 const { Header, Content } = Layout;
 
@@ -34,29 +36,64 @@ export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const isMobile = useIsMobile();
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const selectedKey = location.pathname.startsWith("/bookings") ? "/" : location.pathname;
   const visibleNavItems = NAV_ITEMS.filter((item) => user?.permissions.includes(item.permission));
 
   async function handleLogout() {
+    setDrawerOpen(false);
     await logout();
     navigate("/login", { replace: true });
   }
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
-      <Header style={{ display: "flex", alignItems: "center" }}>
-        <div style={{ color: "#fff", fontWeight: 600, marginRight: 32 }}>车队管理系统</div>
-        <Menu theme="dark" mode="horizontal" selectedKeys={[selectedKey]} items={visibleNavItems} style={{ flex: 1 }} />
-        <Space>
-          <Typography.Text style={{ color: "#fff" }}>{user?.username}</Typography.Text>
-          <a style={{ color: "#fff" }} onClick={handleLogout}>
-            登出
-          </a>
-        </Space>
+    <Layout className="app-full-height">
+      <Header
+        className="safe-area-top"
+        style={{ display: "flex", alignItems: "center", paddingInline: isMobile ? 16 : undefined }}
+      >
+        {isMobile && (
+          <Button
+            type="text"
+            aria-label="打开导览选单"
+            icon={<MenuOutlined style={{ color: "#fff", fontSize: 20 }} />}
+            onClick={() => setDrawerOpen(true)}
+            style={{ marginRight: 12, minWidth: 44, minHeight: 44 }}
+          />
+        )}
+        <div style={{ color: "#fff", fontWeight: 600, marginRight: 32, flex: isMobile ? 1 : undefined }}>车队管理系统</div>
+        {!isMobile && (
+          <>
+            <Menu theme="dark" mode="horizontal" selectedKeys={[selectedKey]} items={visibleNavItems} style={{ flex: 1 }} />
+            <Space>
+              <Typography.Text style={{ color: "#fff" }}>{user?.username}</Typography.Text>
+              <a style={{ color: "#fff" }} onClick={handleLogout}>
+                登出
+              </a>
+            </Space>
+          </>
+        )}
       </Header>
       <Content>
         <Outlet />
       </Content>
+
+      {/* Mobile Phase 1：手机宽度下用左侧 Drawer 取代横向 Menu——横向 Menu 超过一定
+          项目数会自动收进 antd 的「…」溢出选单，登出连结会一起被藏起来，
+          手机上很难点到（之前遇到的问题）。Drawer 展开后所有项目都是纵向列表，
+          一定看得到、点得到。 */}
+      <Drawer title="车队管理系统" placement="left" open={drawerOpen} onClose={() => setDrawerOpen(false)} width={280} styles={{ body: { padding: 0 } }}>
+        <Menu mode="inline" selectedKeys={[selectedKey]} items={visibleNavItems} onClick={() => setDrawerOpen(false)} />
+        <div className="safe-area-bottom" style={{ padding: 16, borderTop: "1px solid #f0f0f0" }}>
+          <Space direction="vertical" style={{ width: "100%" }}>
+            <Typography.Text type="secondary">{user?.username}</Typography.Text>
+            <Button block onClick={handleLogout} style={{ minHeight: 44 }}>
+              登出
+            </Button>
+          </Space>
+        </div>
+      </Drawer>
     </Layout>
   );
 }

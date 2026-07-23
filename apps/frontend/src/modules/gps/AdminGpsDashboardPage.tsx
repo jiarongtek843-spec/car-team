@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Card, Col, Empty, Row, Space, Switch, Tag, Typography } from "antd";
 import { useDriverPresenceListQuery } from "./hooks";
+import { useIsMobile } from "../../common/useIsMobile";
 import { PRESENCE_STATUS_COLOR, PRESENCE_STATUS_DOT, PRESENCE_STATUS_LABELS } from "./types";
 import type { DriverPresence } from "./types";
 
@@ -47,10 +48,11 @@ function DriverPresenceCard({ presence }: { presence: DriverPresence }) {
 export function AdminGpsDashboardPage() {
   const [onlineOnly, setOnlineOnly] = useState(true);
   const { data, isLoading } = useDriverPresenceListQuery(onlineOnly);
+  const isMobile = useIsMobile();
 
   return (
-    <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }}>
+    <div style={{ padding: isMobile ? 12 : 24 }}>
+      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Typography.Title level={4} style={{ margin: 0 }}>
           GPS Live Tracking
         </Typography.Title>

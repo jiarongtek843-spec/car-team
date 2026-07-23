@@ -1,7 +1,9 @@
 import { useEffect } from "react";
-import { Form, Input, message, Modal } from "antd";
+import { Form, Input, message } from "antd";
 import { useUpdateDriverMutation } from "../hooks";
 import type { Driver } from "../../../types/booking";
+import { ResponsiveModal } from "../../../common/ResponsiveModal";
+import { ApiError } from "../../../api/http";
 
 interface FormValues {
   name: string;
@@ -34,13 +36,17 @@ export function EditDriverModal({ driver, onClose }: { driver: Driver | null; on
   async function handleSubmit() {
     if (!driver) return;
     const values = await form.validateFields();
-    await updateDriver.mutateAsync({ id: driver.id, input: values });
-    message.success("Driver 资料已更新");
-    handleClose();
+    try {
+      await updateDriver.mutateAsync({ id: driver.id, input: values });
+      message.success("Driver 资料已更新");
+      handleClose();
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : "更新失败，请重试");
+    }
   }
 
   return (
-    <Modal
+    <ResponsiveModal
       title={`编辑 Driver${driver ? ` #${driver.id}` : ""}`}
       open={open}
       onCancel={handleClose}
@@ -63,6 +69,6 @@ export function EditDriverModal({ driver, onClose }: { driver: Driver | null; on
           <Input.TextArea rows={2} />
         </Form.Item>
       </Form>
-    </Modal>
+    </ResponsiveModal>
   );
 }

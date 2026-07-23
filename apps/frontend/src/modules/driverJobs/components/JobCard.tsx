@@ -1,4 +1,4 @@
-import { Button, Card, Space, Tag, Typography, message } from "antd";
+import { Button, Card, Popconfirm, Space, Tag, Typography, message } from "antd";
 import type { DriverLeg } from "../types";
 import { useAcceptLegMutation, useCompleteLegMutation, useMarkArrivingMutation, useMarkOnBoardMutation } from "../hooks";
 
@@ -92,16 +92,20 @@ export function JobCard({ leg, onReject }: { leg: DriverLeg; onReject: (legId: n
             </Button>
           )}
           {leg.status === "PASSENGER_ON_BOARD" && (
-            <Button
-              type="primary"
-              loading={complete.isPending}
-              onClick={async () => {
+            <Popconfirm
+              title="确定要标记这趟行程已完成吗？"
+              description="完成后无法撤销，收入会立刻发放。"
+              okText="确定完成"
+              cancelText="再等等"
+              onConfirm={async () => {
                 await complete.mutateAsync(leg.id);
                 message.success("工作已完成");
               }}
             >
-              Mark as Completed
-            </Button>
+              <Button type="primary" loading={complete.isPending}>
+                Mark as Completed
+              </Button>
+            </Popconfirm>
           )}
         </Space>
       </Space>

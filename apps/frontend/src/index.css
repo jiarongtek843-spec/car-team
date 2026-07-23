@@ -1,5 +1,102 @@
+html {
+  /* Mobile First UI Remediation：支持最小宽度 320px，任何单一元素都不该把
+     整个文件撑宽到需要横向卷动——这一条是最后一道防线，个别元件仍然要自己
+     负责不要撑爆（overflow-x: auto 局部卷动、min-width: 0 等）。 */
+  overflow-x: hidden;
+  width: 100%;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   background: #f5f5f5;
+  overflow-x: hidden;
+  width: 100%;
+  /* iOS Safari 特有：双击缩放这个手势在一个「App 感」的介面里几乎都是誤触，
+     关掉之后配合下面 16px 最小字体，才能真正做到「不会被系统缩放打断操作」。 */
+  touch-action: manipulation;
+}
+
+#root {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+/* iOS Safari 的 100vh 包含被收合的网址列底下那段空间，导致贴齐视窗高度的版面
+   （AppLayout/DriverLayout/Login/RequireAuth 的 Loading 画面）在实机上底部会被
+   网址列挡住一截，或者随着网址列展开/收合而跳动。dvh（dynamic viewport height）
+   会跟着「目前真正看得到」的高度走，是正确答案；100vh 留着当作不支援 dvh 的
+   旧浏览器 fallback——CSS 允许同一个属性重复宣告，后面看得懂的值会覆盖前一个。 */
+.app-full-height {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Mobile First UI Remediation：所有会固定在畫面顶部/底部的元件（App Bar、
+   Drawer 里贴底的 Logout 按钮、ResponsiveModal 手机版的 Drawer footer）都要
+   把 iPhone 的 safe-area（瀏海/Home Indicator 那圈系统保留区）加进 padding，
+   不然内容会被系统手势条或瀏海真的物理遮住，不是层级（z-index）能解决的问题。 */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Mobile First UI Remediation：iOS Safari 对 <input>/<select>/<textarea> 有一条
+   写死的规则——聚焦时如果该元素的字体小于 16px，系统会自动放大整个页面「方便
+   看清楚在打什么」，放大后使用者常常搞不清楚东西跑去哪，等于变相把整个版面弄乱。
+   所有 antd 表单控件的实际输入框都要 >= 16px，跟上面 44px 触控高度是两件独立
+   的事（高度是给手指点的，字体是给系统缩放判断用的），两条都要满足。 */
+@media (max-width: 767px) {
+  .ant-input,
+  .ant-input-affix-wrapper,
+  .ant-input-number-input,
+  .ant-select-selector .ant-select-selection-search-input,
+  .ant-select-selection-item,
+  .ant-picker-input input,
+  textarea.ant-input {
+    font-size: 16px !important;
+  }
+}
+
+/* Mobile Phase 1：手指点击目标至少 44px（Apple/Material 建议的最小可点击尺寸），
+   只在手机宽度生效，桌面维持 antd 原本的紧凑尺寸不受影响。 */
+@media (max-width: 767px) {
+  .ant-btn {
+    min-height: 44px;
+  }
+
+  .ant-btn-sm {
+    min-height: 36px;
+  }
+
+  .ant-select-single .ant-select-selector,
+  .ant-picker,
+  .ant-input,
+  .ant-input-number,
+  .ant-input-number-input {
+    min-height: 44px;
+  }
+
+  .ant-checkbox-wrapper,
+  .ant-radio-wrapper {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Mobile First UI Remediation：antd Table 在窄容器里预设会把每个 Column
+     Header 的文字逐字换行（挤成一字一行），即使这个 Table 本来就该在手机上被
+     换成 Card（MobileCardList），也不该让 Table 本身在还没切换完成前先丑给
+     使用者看——保险起见统一关闭 Header 文字换行，改成可以内部横向卷动。 */
+  .ant-table-thead > tr > th {
+    white-space: nowrap;
+  }
+
+  .ant-table-wrapper {
+    overflow-x: auto;
+    max-width: 100%;
+  }
 }

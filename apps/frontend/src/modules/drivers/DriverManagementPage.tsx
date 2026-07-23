@@ -8,6 +8,8 @@ import { ResetPasswordModal } from "./components/ResetPasswordModal";
 import type { Driver } from "../../types/booking";
 import { PermissionGate } from "../auth/PermissionGate";
 import { PERMISSIONS } from "../../common/permissions";
+import { useIsMobile } from "../../common/useIsMobile";
+import { MobileCardList } from "../../common/MobileCardList";
 
 export function DriverManagementPage() {
   const { data: drivers, isLoading } = useDriversQuery();
@@ -15,6 +17,7 @@ export function DriverManagementPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [resettingDriver, setResettingDriver] = useState<Driver | null>(null);
+  const isMobile = useIsMobile();
 
   const columns: ColumnsType<Driver> = [
     { title: "编号", dataIndex: "id", width: 70 },
@@ -38,7 +41,7 @@ export function DriverManagementPage() {
       title: "操作",
       render: (_, driver) => (
         <PermissionGate permission={PERMISSIONS.DRIVER_WRITE}>
-          <Space>
+          <Space wrap>
             <a onClick={() => setEditingDriver(driver)}>编辑</a>
             {driver.username && <a onClick={() => setResettingDriver(driver)}>重设密码</a>}
             <Popconfirm
@@ -62,8 +65,8 @@ export function DriverManagementPage() {
   ];
 
   return (
-    <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }}>
+    <div style={{ padding: isMobile ? 12 : 24 }}>
+      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Typography.Title level={4} style={{ margin: 0 }}>
           Driver Management
         </Typography.Title>
@@ -74,7 +77,11 @@ export function DriverManagementPage() {
         </PermissionGate>
       </Space>
 
-      <Table rowKey="id" loading={isLoading} dataSource={drivers} columns={columns} />
+      {isMobile ? (
+        <MobileCardList rowKey="id" loading={isLoading} dataSource={drivers} columns={columns} emptyText="还没有 Driver" />
+      ) : (
+        <Table rowKey="id" loading={isLoading} dataSource={drivers} columns={columns} />
+      )}
 
       <CreateDriverModal open={createOpen} onClose={() => setCreateOpen(false)} />
       <EditDriverModal driver={editingDriver} onClose={() => setEditingDriver(null)} />

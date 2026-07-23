@@ -34,8 +34,11 @@ export function LoginPage() {
   }
 
   return (
-    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
-      <Card style={{ width: 360 }}>
+    <div
+      className="app-full-height"
+      style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: 16, boxSizing: "border-box" }}
+    >
+      <Card style={{ width: "100%", maxWidth: 360 }}>
         <Typography.Title level={4} style={{ textAlign: "center", marginTop: 0 }}>
           车队管理系统
         </Typography.Title>

@@ -1,6 +1,8 @@
-import { Form, Input, message, Modal } from "antd";
+import { Form, Input, message } from "antd";
 import { useResetDriverPasswordMutation } from "../hooks";
 import type { Driver } from "../../../types/booking";
+import { ResponsiveModal } from "../../../common/ResponsiveModal";
+import { ApiError } from "../../../api/http";
 
 interface FormValues {
   password: string;
@@ -19,13 +21,17 @@ export function ResetPasswordModal({ driver, onClose }: { driver: Driver | null;
   async function handleSubmit() {
     if (!driver) return;
     const values = await form.validateFields();
-    await resetPassword.mutateAsync({ id: driver.id, password: values.password });
-    message.success("密码已重设");
-    handleClose();
+    try {
+      await resetPassword.mutateAsync({ id: driver.id, password: values.password });
+      message.success("密码已重设");
+      handleClose();
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : "重设失败，请重试");
+    }
   }
 
   return (
-    <Modal
+    <ResponsiveModal
       title={`重设密码${driver ? ` — ${driver.name}` : ""}`}
       open={open}
       onCancel={handleClose}
@@ -39,6 +45,6 @@ export function ResetPasswordModal({ driver, onClose }: { driver: Driver | null;
           <Input.Password autoComplete="new-password" />
         </Form.Item>
       </Form>
-    </Modal>
+    </ResponsiveModal>
   );
 }

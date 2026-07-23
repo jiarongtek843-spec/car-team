@@ -15,23 +15,34 @@ const FILTER_OPTIONS: { label: string; value: BookingDispatchFilter | "ALL" }[] 
 
 export function WaitingBookingsPanel({
   selectedLegId,
-  onSelectLeg
+  onSelectLeg,
+  defaultFilter = "ALL",
+  title = "Waiting Booking"
 }: {
   selectedLegId: number | null;
   onSelectLeg: (leg: DispatchWaitingLeg) => void;
+  /** Dispatch Center 手机版的「Active Jobs」Tab 复用同一个 Panel，只是预设 Filter 不同
+   * （IN_PROGRESS），不需要重新实作一个几乎一样的列表组件或新增 Backend API。 */
+  defaultFilter?: BookingDispatchFilter | "ALL";
+  title?: string;
 }) {
-  const [filter, setFilter] = useState<BookingDispatchFilter | "ALL">("ALL");
+  const [filter, setFilter] = useState<BookingDispatchFilter | "ALL">(defaultFilter);
   const [search, setSearch] = useState("");
   const { data, isLoading } = useWaitingBookingsQuery(filter === "ALL" ? undefined : filter, search);
 
   return (
-    <Card title="Waiting Booking" extra={<Typography.Text type="secondary">{data?.length ?? 0} 笔</Typography.Text>}>
+    <Card title={title} extra={<Typography.Text type="secondary">{data?.length ?? 0} 笔</Typography.Text>}>
       <Space direction="vertical" style={{ width: "100%", marginBottom: 12 }}>
-        <Segmented
-          options={FILTER_OPTIONS}
-          value={filter}
-          onChange={(v) => setFilter(v as BookingDispatchFilter | "ALL")}
-        />
+        {/* Segmented 本身不会自动换行，选项一多手机上可能比容器宽——用一个可以局部横向
+            卷动的容器包住，卷动只发生在这个小控件内，不会影响整个页面（页面本身
+            禁止横向卷动，见 index.css）。 */}
+        <div style={{ overflowX: "auto", maxWidth: "100%" }}>
+          <Segmented
+            options={FILTER_OPTIONS}
+            value={filter}
+            onChange={(v) => setFilter(v as BookingDispatchFilter | "ALL")}
+          />
+        </div>
         <Input.Search allowClear placeholder="搜索 Booking ID / Girl 姓名" onSearch={setSearch} />
       </Space>
 

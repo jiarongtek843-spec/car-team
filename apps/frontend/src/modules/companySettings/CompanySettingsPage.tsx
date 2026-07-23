@@ -5,6 +5,7 @@ import { useCompanySettingsQuery, useUpdateCompanySettingsMutation } from "./hoo
 import { usePermission } from "../auth/usePermission";
 import { PERMISSIONS } from "../../common/permissions";
 import type { UpdateCompanySettingsInput } from "./types";
+import { useIsMobile } from "../../common/useIsMobile";
 
 interface FormValues {
   companyName: string;
@@ -28,6 +29,7 @@ export function CompanySettingsPage() {
   const { data: settings, isLoading } = useCompanySettingsQuery();
   const updateSettings = useUpdateCompanySettingsMutation();
   const canWrite = usePermission(PERMISSIONS.COMPANY_SETTINGS_WRITE);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (settings) {
@@ -49,7 +51,7 @@ export function CompanySettingsPage() {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 720 }}>
+    <div style={{ padding: isMobile ? 12 : 24, maxWidth: 720 }}>
       <Typography.Title level={4}>Company Settings</Typography.Title>
 
       {!canWrite && (

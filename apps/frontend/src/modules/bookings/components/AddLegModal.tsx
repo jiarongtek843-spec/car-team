@@ -1,7 +1,8 @@
-import { DatePicker, Form, Input, InputNumber, message, Modal } from "antd";
+import { DatePicker, Form, Input, InputNumber, message } from "antd";
 import type { Dayjs } from "dayjs";
 import { useAddLegMutation } from "../hooks";
 import { ringgitToCents } from "../../../lib/money";
+import { ResponsiveModal } from "../../../common/ResponsiveModal";
 
 interface FormValues {
   pickupLocation?: string;
@@ -34,7 +35,7 @@ export function AddLegModal({ bookingId, open, onClose }: { bookingId: number; o
   }
 
   return (
-    <Modal
+    <ResponsiveModal
       title="新增 Leg"
       open={open}
       onCancel={handleClose}
@@ -60,6 +61,6 @@ export function AddLegModal({ bookingId, open, onClose }: { bookingId: number; o
           <Input.TextArea rows={2} />
         </Form.Item>
       </Form>
-    </Modal>
+    </ResponsiveModal>
   );
 }

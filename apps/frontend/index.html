@@ -3,7 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover：iPhone Safari 只有在页面明确要求「盖满整个屏幕（含瀏海/Home
+         Indicator 那圈系统保留区）」时，才会让 env(safe-area-inset-*) 回传非零的值——
+         不加这个，index.css 里的 .safe-area-top/.safe-area-bottom 永远是 0，形同虚设。 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Mobile First UI Remediation：PWA 基础骨架（manifest + icons placeholder + theme-color +
+         standalone display）——目前不开发 Native App，但先把「未来可以被安装成 App」的
+         挂载点准备好，之后加真正的 App Icon/Splash Screen 不需要再动 index.html。 -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <meta name="theme-color" content="#001529" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="车队管理" />
     <title>车队管理系统</title>
   </head>
   <body>

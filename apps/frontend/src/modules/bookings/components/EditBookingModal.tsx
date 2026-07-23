@@ -1,8 +1,9 @@
 import { useEffect } from "react";
-import { Form, Input, InputNumber, message, Modal, Select, Space } from "antd";
+import { Form, Input, InputNumber, message, Select, Space } from "antd";
 import { useUpdateBookingMutation } from "../hooks";
 import { centsToRinggit, ringgitToCents } from "../../../lib/money";
 import type { Booking, CommissionType } from "../../../types/booking";
+import { ResponsiveModal } from "../../../common/ResponsiveModal";
 
 interface FormValues {
   girlName: string;
@@ -60,7 +61,7 @@ export function EditBookingModal({ booking, open, onClose }: { booking: Booking;
   }
 
   return (
-    <Modal
+    <ResponsiveModal
       title="编辑 Booking"
       open={open}
       onCancel={handleClose}
@@ -83,7 +84,7 @@ export function EditBookingModal({ booking, open, onClose }: { booking: Booking;
         >
           <InputNumber style={{ width: "100%" }} min={0} step={0.01} disabled={hasEarningHistory} />
         </Form.Item>
-        <Space>
+        <Space wrap>
           <Form.Item name="commissionType" label="Commission Type" style={{ marginBottom: 0 }}>
             <Select style={{ width: 180 }} options={COMMISSION_TYPE_OPTIONS} disabled={hasEarningHistory} />
           </Form.Item>
@@ -92,6 +93,6 @@ export function EditBookingModal({ booking, open, onClose }: { booking: Booking;
           </Form.Item>
         </Space>
       </Form>
-    </Modal>
+    </ResponsiveModal>
   );
 }

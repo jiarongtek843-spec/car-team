@@ -18,7 +18,7 @@ export function RequireAuth({ portal, permission, children }: RequireAuthProps) 
 
   if (isLoading) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
+      <div className="app-full-height" style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
         <Spin size="large" />
       </div>
     );

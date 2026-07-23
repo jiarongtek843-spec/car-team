@@ -1,8 +1,9 @@
 import { useEffect } from "react";
-import { Form, InputNumber, message, Modal } from "antd";
+import { Form, InputNumber, message } from "antd";
 import { useUpdateLegMutation } from "../hooks";
 import { centsToRinggit, ringgitToCents } from "../../../lib/money";
 import type { Leg } from "../../../types/booking";
+import { ResponsiveModal } from "../../../common/ResponsiveModal";
 
 interface FormValues {
   earningAllocation?: number;
@@ -44,7 +45,7 @@ export function EditAllocationModal({
   }
 
   return (
-    <Modal
+    <ResponsiveModal
       title={`设定司机收入${leg ? ` — Leg ${leg.sequence}` : ""}`}
       open={open}
       onCancel={handleClose}
@@ -58,6 +59,6 @@ export function EditAllocationModal({
           <InputNumber style={{ width: "100%" }} min={0} step={0.01} />
         </Form.Item>
       </Form>
-    </Modal>
+    </ResponsiveModal>
   );
 }

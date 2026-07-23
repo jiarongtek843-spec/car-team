@@ -1,25 +1,14 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Button,
-  Collapse,
-  DatePicker,
-  Divider,
-  Form,
-  Input,
-  InputNumber,
-  message,
-  Modal,
-  Select,
-  Space,
-  Typography
-} from "antd";
+import { Button, Collapse, DatePicker, Divider, Form, Input, InputNumber, message, Select, Space, Typography } from "antd";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import { useCreateBookingMutation } from "../hooks";
 import { parseBookingText } from "../parseBookingText";
 import { ringgitToCents } from "../../../lib/money";
 import type { CommissionType, CreateBookingInput } from "../../../types/booking";
 import type { Dayjs } from "dayjs";
+import { ResponsiveModal } from "../../../common/ResponsiveModal";
+import { ApiError } from "../../../api/http";
 
 interface FormLeg {
   pickupLocation?: string;
@@ -80,34 +69,45 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
   }
 
   async function handleSubmit() {
-    const values = await form.validateFields();
-    const input: CreateBookingInput = {
-      girlName: values.girlName,
-      notes: values.notes || undefined,
-      totalAmountCents: values.totalAmount !== undefined ? ringgitToCents(values.totalAmount) : undefined,
-      commissionType: values.commissionType,
-      commissionValue:
-        values.commissionValue !== undefined
-          ? values.commissionType === "FIXED_AMOUNT"
-            ? ringgitToCents(values.commissionValue)
-            : values.commissionValue
-          : undefined,
-      legs: values.legs?.map((leg) => ({
-        pickupLocation: leg.pickupLocation || undefined,
-        dropoffLocation: leg.dropoffLocation || undefined,
-        scheduledAt: leg.scheduledAt?.toISOString(),
-        earningAllocationCents: leg.earningAllocation !== undefined ? ringgitToCents(leg.earningAllocation) : undefined
-      }))
-    };
+    // Mobile First UI Remediation：原本 validateFields()/mutateAsync() 都没有 catch——
+    // Validation 失败时 antd Form 本身会显示栏位错误（这部分行为不受影响），但会留下
+    // 一个没人处理的 rejected Promise；mutateAsync 失败时更严重，使用者会看到「没反应」，
+    // 没有任何错误讯息。统一包一层：Validation 失败就什么都不做（antd 已经显示了），
+    // API 失败才跳错误讯息。
+    try {
+      const values = await form.validateFields();
+      const input: CreateBookingInput = {
+        girlName: values.girlName,
+        notes: values.notes || undefined,
+        totalAmountCents: values.totalAmount !== undefined ? ringgitToCents(values.totalAmount) : undefined,
+        commissionType: values.commissionType,
+        commissionValue:
+          values.commissionValue !== undefined
+            ? values.commissionType === "FIXED_AMOUNT"
+              ? ringgitToCents(values.commissionValue)
+              : values.commissionValue
+            : undefined,
+        legs: values.legs?.map((leg) => ({
+          pickupLocation: leg.pickupLocation || undefined,
+          dropoffLocation: leg.dropoffLocation || undefined,
+          scheduledAt: leg.scheduledAt?.toISOString(),
+          earningAllocationCents: leg.earningAllocation !== undefined ? ringgitToCents(leg.earningAllocation) : undefined
+        }))
+      };
 
-    const booking = await createBooking.mutateAsync(input);
-    message.success(`Booking #${booking.id} 建立成功`);
-    handleClose();
-    navigate(`/bookings/${booking.id}`);
+      const booking = await createBooking.mutateAsync(input);
+      message.success(`Booking #${booking.id} 建立成功`);
+      handleClose();
+      navigate(`/bookings/${booking.id}`);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        message.error(err.message);
+      }
+    }
   }
 
   return (
-    <Modal
+    <ResponsiveModal
       title="新建 Booking"
       open={open}
       onCancel={handleClose}
@@ -147,7 +147,7 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
               key: "commission",
               label: "抽成设定（不填就用公司默认值）",
               children: (
-                <Space>
+                <Space wrap>
                   <Form.Item name="commissionType" label="Commission Type" style={{ marginBottom: 0 }}>
                     <Select style={{ width: 180 }} allowClear options={COMMISSION_TYPE_OPTIONS} />
                   </Form.Item>
@@ -188,6 +188,6 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
           )}
         </Form.List>
       </Form>
-    </Modal>
+    </ResponsiveModal>
   );
 }

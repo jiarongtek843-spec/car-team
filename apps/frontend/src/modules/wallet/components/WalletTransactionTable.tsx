@@ -2,6 +2,8 @@ import { Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { WalletTransaction, WalletTransactionStatus } from "../types";
 import { formatCents } from "../../../lib/money";
+import { useIsMobile } from "../../../common/useIsMobile";
+import { MobileCardList } from "../../../common/MobileCardList";
 
 const STATUS_COLOR: Record<WalletTransactionStatus, string> = {
   PENDING: "gold",
@@ -32,6 +34,7 @@ export function WalletTransactionTable({
   showDriverColumn?: boolean;
   pagination?: false | { current: number; pageSize: number; total: number; onChange: (page: number) => void };
 }) {
+  const isMobile = useIsMobile();
   const columns: ColumnsType<WalletTransaction> = [
     ...(showDriverColumn
       ? [{ title: "Driver", render: (_: unknown, record: WalletTransaction) => record.driver?.name ?? "-" }]
@@ -50,6 +53,19 @@ export function WalletTransactionTable({
     { title: "Settlement Reference", render: (_, record) => record.settlement?.reference ?? "-" },
     { title: "Description", dataIndex: "description", render: (v: string | null) => v ?? "-" }
   ];
+
+  if (isMobile) {
+    return (
+      <MobileCardList
+        rowKey="id"
+        loading={loading}
+        dataSource={data}
+        columns={columns}
+        pagination={pagination === false ? undefined : pagination}
+        emptyText="没有交易纪录"
+      />
+    );
+  }
 
   return (
     <Table
