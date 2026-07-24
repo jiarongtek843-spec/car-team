@@ -53,6 +53,23 @@ describe("GPS live tracking (Module 5 scenarios)", () => {
     expect(offline.onlineSince).toBeNull();
   });
 
+  it("Mobile UAT Bug Fix：goOnline 之后立刻查 getDriverPresence（不用等任何 GPS ping）就是 ONLINE，不是 OFFLINE/undefined", async () => {
+    // 对应 driverPresence.controller.ts 的 goOnline/goOffline：现在直接在同一个 request 里
+    // 呼叫 gpsService.goOnline 再呼叫 gpsService.getDriverPresence 组成回应，这里锁定这个
+    // 组合本身产生的结果是正确的——真实设备上曾经出现「点了上线、Toast 显示成功，但 Header/
+    // 首页读到的 presence 还是 Offline」，根因之一就是没有验证过这个组合值是否真的立刻是 ONLINE。
+    const driver = await createTestDriver("Immediate Online Presence Driver");
+    driverIds.push(driver.id);
+
+    await gpsService.goOnline(driver.id, systemActor);
+    const presence = await gpsService.getDriverPresence(driver.id);
+    expect(presence.status).toBe("ONLINE");
+
+    await gpsService.goOffline(driver.id, systemActor);
+    const presenceAfterOffline = await gpsService.getDriverPresence(driver.id);
+    expect(presenceAfterOffline.status).toBe("OFFLINE");
+  });
+
   it("rejects a GPS ping when the driver has not gone online", async () => {
     const driver = await createTestDriver("Offline Ping Driver");
     driverIds.push(driver.id);

@@ -21,16 +21,27 @@ function getDriverId(req: Request): number {
   return driverId;
 }
 
+/**
+ * Mobile UAT Bug Fix（Driver Online 状态同步）：之前这里只回传原始 Driver 记录（isOnline 布林值），
+ * Frontend 得另外再打一次 GET /me、靠 react-query 的 invalidateQueries 重新拉一次才能知道
+ * 最新状态——这中间隔了一次额外的网路来回，会跟 useMyPresenceQuery 的 5 秒轮询、Safari 的
+ * 快取行为等各种因素产生竞态，真实设备上出现过「Toast 显示已上线，但 Header/首页 Switch
+ * 没跟着变」的情况。改成直接回传跟 GET /me 完全同一份 `DriverPresence`（同一个
+ * getDriverPresence 计算），Frontend 收到这个回应就能直接拿来更新 UI，不需要再等第二次
+ * 网路请求，也就不会有任何竞态或快取问题。
+ */
 export async function goOnline(req: Request, res: Response) {
   const driverId = getDriverId(req);
-  const driver = await gpsService.goOnline(driverId, actorFromRequest(req)!);
-  res.json(driver);
+  await gpsService.goOnline(driverId, actorFromRequest(req)!);
+  const presence = await gpsService.getDriverPresence(driverId);
+  res.json(presence);
 }
 
 export async function goOffline(req: Request, res: Response) {
   const driverId = getDriverId(req);
-  const driver = await gpsService.goOffline(driverId, actorFromRequest(req)!);
-  res.json(driver);
+  await gpsService.goOffline(driverId, actorFromRequest(req)!);
+  const presence = await gpsService.getDriverPresence(driverId);
+  res.json(presence);
 }
 
 export async function ping(req: Request, res: Response) {

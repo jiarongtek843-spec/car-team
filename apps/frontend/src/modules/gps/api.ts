@@ -14,11 +14,11 @@ export function fetchMyPresence() {
 }
 
 export function goOnline() {
-  return http.post<void>("/api/driver/presence/online");
+  return http.post<DriverPresence>("/api/driver/presence/online");
 }
 
 export function goOffline() {
-  return http.post<void>("/api/driver/presence/offline");
+  return http.post<DriverPresence>("/api/driver/presence/offline");
 }
 
 export interface PingInput {
