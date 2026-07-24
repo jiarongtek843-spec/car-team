@@ -1,4 +1,9 @@
-export type WalletTransactionType = "LEG_EARNING" | "MANUAL_ADJUSTMENT" | "SETTLEMENT_ADJUSTMENT";
+export type WalletTransactionType =
+  | "LEG_EARNING"
+  | "MANUAL_ADJUSTMENT"
+  | "SETTLEMENT_ADJUSTMENT"
+  | "EXPENSE_REIMBURSEMENT"
+  | "REVENUE_SHARE_PAYOUT";
 export type WalletTransactionStatus = "PENDING" | "SETTLED" | "VOIDED";
 
 export interface WalletTransaction {

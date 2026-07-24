@@ -282,4 +282,74 @@ describe("Collection module (Module 4 scenarios)", () => {
     const second = await settlementService.confirmSettlement(driver.id, today, today, systemActor);
     expect(second.collectionAmountCents).toBe(6000);
   });
+
+  it("Mobile UAT Bug Fix：Company 收款（collectedBy=COMPANY）不会被算成 Driver 欠公司的负债", async () => {
+    const driver = await createTestDriver("Company Collection Not Debt Driver");
+    driverIds.push(driver.id);
+    const booking = await createTestBooking("CompanyCollectionNotDebt");
+
+    // Driver Earnings RM50
+    await walletService.createAdjustment(
+      "MANUAL_ADJUSTMENT",
+      { driverId: driver.id, amountCents: 5000, reason: "Earnings", effectiveDate: toDateStr(new Date()) },
+      systemActor
+    );
+
+    // Company 直接收款 RM1000，只是保留这个 Driver 的行程做参照，不该被当成这个 Driver 欠公司的钱。
+    const companyCollection = await prisma.collection.create({
+      data: {
+        bookingId: booking.id,
+        driverId: driver.id,
+        purpose: "OTHER",
+        amountCents: 100000,
+        paymentMethod: "TRANSFER_TO_COMPANY",
+        status: "VERIFIED",
+        collectedBy: "COMPANY",
+        receiverType: "COMPANY",
+        verifiedAt: new Date(),
+        verifiedBy: systemActor.id
+      }
+    });
+
+    const today = toDateStr(new Date());
+    const preview = await settlementService.previewSettlement(driver.id, today, today);
+    expect(preview.collectionAmountCents).toBe(0);
+    expect(preview.netAmountCents).toBe(5000); // Company Pay Driver RM50，完全不受 Company 收款影响
+    expect(preview.collections.some((c) => c.id === companyCollection.id)).toBe(false);
+    expect(preview.excludedCollections.some((c) => c.id === companyCollection.id)).toBe(false);
+
+    const settlement = await settlementService.confirmSettlement(driver.id, today, today, systemActor);
+    expect(settlement.collectionAmountCents).toBe(0);
+    expect(settlement.netAmountCents).toBe(5000);
+
+    const stillVerified = await prisma.collection.findUniqueOrThrow({ where: { id: companyCollection.id } });
+    expect(stillVerified.status).toBe("VERIFIED"); // 没有被这次 Settlement 动到
+  });
+
+  it("Mobile UAT Bug Fix：还没 Verify 的 Driver 代收款不会静默消失，会出现在 Excluded Collections", async () => {
+    const driver = await createTestDriver("Unverified Collection Driver");
+    driverIds.push(driver.id);
+    const booking = await createTestBooking("UnverifiedCollectionExcluded");
+
+    // 对应 Bug 报告：RM1000 代收款还没 Verify，Settlement Summary 却显示 RM0.00，
+    // 好像这笔钱凭空消失了。
+    const unverified = await collectionService.createCollection(
+      { bookingId: booking.id, driverId: driver.id, purpose: "OTHER", amountCents: 100000, paymentMethod: "CASH" },
+      systemActor
+    );
+    expect(unverified.status).toBe("COLLECTED");
+
+    const today = toDateStr(new Date());
+    const preview = await settlementService.previewSettlement(driver.id, today, today);
+    expect(preview.collectionAmountCents).toBe(0);
+    expect(preview.collections.some((c) => c.id === unverified.id)).toBe(false);
+    expect(preview.excludedCollections.some((c) => c.id === unverified.id)).toBe(true);
+
+    // Verify 之后才真的被算进 Settlement。
+    await collectionService.verifyCollection(unverified.id, systemActor);
+    const previewAfterVerify = await settlementService.previewSettlement(driver.id, today, today);
+    expect(previewAfterVerify.collectionAmountCents).toBe(100000);
+    expect(previewAfterVerify.collections.some((c) => c.id === unverified.id)).toBe(true);
+    expect(previewAfterVerify.excludedCollections.some((c) => c.id === unverified.id)).toBe(false);
+  });
 });

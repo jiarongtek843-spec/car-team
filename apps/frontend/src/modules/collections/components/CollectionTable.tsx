@@ -1,10 +1,12 @@
-import { Image, Table, Tag } from "antd";
+import { useState } from "react";
+import { Image, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { Collection, CollectionStatus } from "../types";
 import { PAYMENT_METHOD_LABELS, PURPOSE_LABELS, STATUS_LABELS } from "../types";
 import { formatCents } from "../../../lib/money";
 import { useIsMobile } from "../../../common/useIsMobile";
 import { MobileCardList } from "../../../common/MobileCardList";
+import { toProofUrl } from "../../../lib/uploads";
 
 const STATUS_COLOR: Record<CollectionStatus, string> = {
   PENDING: "default",
@@ -14,7 +16,23 @@ const STATUS_COLOR: Record<CollectionStatus, string> = {
   VOIDED: "error"
 };
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+// 图片载入失败（档案已经不在磁盘上、或没有权限）时显示明确文字，不是破图或问号图标——
+// 手机 UAT 明确要求「文件不存在时显示：证明图片已不存在，请重新上传」。用小组件包一层
+// 是因为 error 状态要 per-image 记，不能整个 Table 共用一个布林值。
+function ProofThumbnail({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        证明图片已不存在，请重新上传
+      </Typography.Text>
+    );
+  }
+
+  // antd Image 点击缩图会自动打开全屏预览（内建 preview，不需要额外接线）。
+  return <Image src={url} width={48} height={48} style={{ objectFit: "cover" }} onError={() => setFailed(true)} />;
+}
 
 export function CollectionTable({
   data,
@@ -53,8 +71,10 @@ export function CollectionTable({
     {
       title: "Proof",
       dataIndex: "proofImageUrl",
-      render: (v: string | null) =>
-        v ? <Image src={`${API_BASE_URL}${v}`} width={48} height={48} style={{ objectFit: "cover" }} /> : "-"
+      render: (v: string | null) => {
+        const url = toProofUrl(v);
+        return url ? <ProofThumbnail url={url} /> : "-";
+      }
     },
     { title: "Settlement Reference", render: (_, record) => record.settlement?.reference ?? "-" },
     { title: "Remark", dataIndex: "remark", render: (v: string | null) => v ?? "-" },

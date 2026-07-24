@@ -19,8 +19,20 @@ export function fetchSettlementPreview(driverId: number, periodStart: string, pe
   );
 }
 
-export function confirmSettlement(driverId: number, periodStart: string, periodEnd: string) {
-  return http.post<Settlement>("/api/admin/settlements", { driverId, periodStart, periodEnd });
+export function confirmSettlement(
+  driverId: number,
+  periodStart: string,
+  periodEnd: string,
+  selectedWalletTransactionIds: number[],
+  selectedCollectionIds: number[]
+) {
+  return http.post<Settlement>("/api/admin/settlements", {
+    driverId,
+    periodStart,
+    periodEnd,
+    selectedWalletTransactionIds,
+    selectedCollectionIds
+  });
 }
 
 export function fetchSettlements(params: { driverId?: number; page?: number; pageSize?: number }) {

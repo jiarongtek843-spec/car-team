@@ -20,7 +20,9 @@ const STATUS_LABEL: Record<WalletTransactionStatus, string> = {
 export const TYPE_LABEL: Record<WalletTransaction["transactionType"], string> = {
   LEG_EARNING: "Leg Earning",
   MANUAL_ADJUSTMENT: "Manual Adjustment",
-  SETTLEMENT_ADJUSTMENT: "Settlement Adjustment"
+  SETTLEMENT_ADJUSTMENT: "Settlement Adjustment",
+  EXPENSE_REIMBURSEMENT: "Expense Reimbursement",
+  REVENUE_SHARE_PAYOUT: "Revenue Share Payout"
 };
 
 export function WalletTransactionTable({

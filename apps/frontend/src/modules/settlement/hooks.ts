@@ -16,8 +16,20 @@ export function useSettlementPreviewQuery(
 export function useConfirmSettlementMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ driverId, periodStart, periodEnd }: { driverId: number; periodStart: string; periodEnd: string }) =>
-      settlementApi.confirmSettlement(driverId, periodStart, periodEnd),
+    mutationFn: ({
+      driverId,
+      periodStart,
+      periodEnd,
+      selectedWalletTransactionIds,
+      selectedCollectionIds
+    }: {
+      driverId: number;
+      periodStart: string;
+      periodEnd: string;
+      selectedWalletTransactionIds: number[];
+      selectedCollectionIds: number[];
+    }) =>
+      settlementApi.confirmSettlement(driverId, periodStart, periodEnd, selectedWalletTransactionIds, selectedCollectionIds),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settlements"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });

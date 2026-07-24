@@ -6,6 +6,7 @@ import { createReversalTransaction } from "../wallet/wallet.service.js";
 import {
   getCollectionsInPeriod,
   getCollectionsOutsidePeriod,
+  getUnverifiedCollections,
   reopenCollectionsForVoidedSettlement,
   sumCollectionAmountCents
 } from "../collections/collection.service.js";
@@ -115,12 +116,19 @@ export async function previewSettlement(driverId: number, periodStartStr: string
 
   const { periodStart, periodEnd } = parsePeriod(periodStartStr, periodEndStr);
 
-  const [includedTransactions, excludedTransactions, includedCollections, excludedCollections] = await Promise.all([
-    getTransactionsInPeriod(driverId, periodStart, periodEnd),
-    getTransactionsOutsidePeriod(driverId, periodStart, periodEnd),
-    getCollectionsInPeriod(driverId, periodStart, periodEnd),
-    getCollectionsOutsidePeriod(driverId, periodStart, periodEnd)
-  ]);
+  const [includedTransactions, excludedTransactions, includedCollections, collectionsOutsidePeriod, unverifiedCollections] =
+    await Promise.all([
+      getTransactionsInPeriod(driverId, periodStart, periodEnd),
+      getTransactionsOutsidePeriod(driverId, periodStart, periodEnd),
+      getCollectionsInPeriod(driverId, periodStart, periodEnd),
+      getCollectionsOutsidePeriod(driverId, periodStart, periodEnd),
+      getUnverifiedCollections(driverId)
+    ]);
+
+  // Excluded Collections 合并两种不同原因：日期落在周期外（collectionsOutsidePeriod），
+  // 或还没被 Verify（unverifiedCollections，不管日期）——两者都不能静默消失，前端用
+  // Collection.status 分辨要显示哪一种排除原因。
+  const excludedCollections = [...collectionsOutsidePeriod, ...unverifiedCollections];
 
   const walletSummary = summarizeWallet(includedTransactions);
   const collectionAmountCents = sumCollectionAmountCents(includedCollections);
@@ -155,11 +163,119 @@ async function generateSettlementReference(tx: TxClient, createdOn: Date): Promi
   return `SET-${dateStr}-${String(existingCount + 1).padStart(4, "0")}`;
 }
 
+export interface SettlementSelection {
+  walletTransactionIds?: number[];
+  collectionIds?: number[];
+}
+
+/**
+ * Selective Settlement（功能五）：Admin 可以只挑周期内的部分项目结算，其余留 Pending。
+ * 前端只负责挑出「打算结算的 id 清单」，绝对不能自己算金额或状态——这里把选到的 id
+ * 重新从 DB 抓一次，逐笔核对：(1) 真的存在；(2) 属于同一个 Driver；(3) 状态仍然可结算
+ * （Wallet 还是 PENDING、Collection 还是 VERIFIED，代表没被别的 Settlement 用掉、没被
+ * VOID）；(4) Collection 必须是 collectedBy=DRIVER（Company 收款不该出现在这里，
+ * 双重保险——即使前端传了也会被挡）；(5) 日期落在目前显示的周期内，v1 先不支持跨周期
+ * 手动选择，落在周期外的话要求 Admin 自己调整日期范围，不在这里偷偷放行。
+ * 没有传选择（selection 是 undefined）时维持原本行为：整个周期内的项目全部结算。
+ */
+async function resolveSettlementItems(
+  driverId: number,
+  periodStart: Date,
+  periodEnd: Date,
+  selection: SettlementSelection | undefined
+) {
+  if (!selection || (selection.walletTransactionIds === undefined && selection.collectionIds === undefined)) {
+    const [transactions, collections] = await Promise.all([
+      getTransactionsInPeriod(driverId, periodStart, periodEnd),
+      getCollectionsInPeriod(driverId, periodStart, periodEnd)
+    ]);
+    return { transactions, collections };
+  }
+
+  const walletTransactionIds = selection.walletTransactionIds ?? [];
+  const collectionIds = selection.collectionIds ?? [];
+
+  const [transactions, collections] = await Promise.all([
+    walletTransactionIds.length > 0
+      ? prisma.walletTransaction.findMany({ where: { id: { in: walletTransactionIds } } })
+      : Promise.resolve([]),
+    collectionIds.length > 0 ? prisma.collection.findMany({ where: { id: { in: collectionIds } } }) : Promise.resolve([])
+  ]);
+
+  if (transactions.length !== walletTransactionIds.length) {
+    throw new ValidationError("Some selected wallet transactions were not found");
+  }
+  if (collections.length !== collectionIds.length) {
+    throw new ValidationError("Some selected collections were not found");
+  }
+
+  // 日期范围检查刻意不在 JS 里直接比较 Date 物件：effectiveDate/collectedAt 从 DB 读回来之后
+  // 再跟这里另外组出来的 periodStart/periodEnd 相比，会撞上 @db.Date 栏位跟 JS Date 时区
+  // 语意不一致的坑（跟 parseLocalDateOnly 那段注解讲的是同一类问题，只是发生在不同层）。
+  // 改成重新丢一次 Prisma 的 gte/lte filter 去问 DB「这些 id 里哪些真的落在这个范围」——
+  // 跟 getTransactionsInPeriod / getCollectionsInPeriod 用的是同一套已经验证过的比较方式，
+  // 保证跟「周期内可结算」清单的认定完全一致。
+  const periodEndOfDay = endOfDay(periodEnd);
+
+  const [inRangeTransactionIds, inRangeCollectionIds] = await Promise.all([
+    walletTransactionIds.length > 0
+      ? prisma.walletTransaction
+          .findMany({
+            where: { id: { in: walletTransactionIds }, effectiveDate: { gte: periodStart, lte: periodEndOfDay } },
+            select: { id: true }
+          })
+          .then((rows) => new Set(rows.map((r) => r.id)))
+      : Promise.resolve(new Set<number>()),
+    collectionIds.length > 0
+      ? prisma.collection
+          .findMany({
+            where: { id: { in: collectionIds }, collectedAt: { gte: periodStart, lte: periodEndOfDay } },
+            select: { id: true }
+          })
+          .then((rows) => new Set(rows.map((r) => r.id)))
+      : Promise.resolve(new Set<number>())
+  ]);
+
+  for (const transaction of transactions) {
+    if (transaction.driverId !== driverId) {
+      throw new ValidationError(`Wallet transaction ${transaction.id} does not belong to this driver`);
+    }
+    if (transaction.status !== "PENDING") {
+      throw new ConflictError(
+        `Wallet transaction ${transaction.id} is no longer settleable (status: ${transaction.status})`
+      );
+    }
+    if (!inRangeTransactionIds.has(transaction.id)) {
+      throw new ValidationError(
+        `Wallet transaction ${transaction.id} falls outside the selected date range; adjust the date range first`
+      );
+    }
+  }
+
+  for (const collection of collections) {
+    if (collection.driverId !== driverId) {
+      throw new ValidationError(`Collection ${collection.id} does not belong to this driver`);
+    }
+    if (collection.collectedBy !== "DRIVER") {
+      throw new ValidationError(`Collection ${collection.id} is not a driver collection`);
+    }
+    if (collection.status !== "VERIFIED") {
+      throw new ConflictError(`Collection ${collection.id} is no longer settleable (status: ${collection.status})`);
+    }
+    if (!inRangeCollectionIds.has(collection.id)) {
+      throw new ValidationError(`Collection ${collection.id} falls outside the selected date range; adjust the date range first`);
+    }
+  }
+
+  return { transactions, collections };
+}
+
 export async function confirmSettlement(
   driverId: number,
   periodStartStr: string,
   periodEndStr: string,
-  actor: AuditActor
+  actor: AuditActor,
+  selection?: SettlementSelection
 ) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) {
@@ -169,10 +285,7 @@ export async function confirmSettlement(
   const { periodStart, periodEnd } = parsePeriod(periodStartStr, periodEndStr);
 
   // Backend 自己重新算一次，绝对不相信前端传来的列表或总额。
-  const [transactions, collections] = await Promise.all([
-    getTransactionsInPeriod(driverId, periodStart, periodEnd),
-    getCollectionsInPeriod(driverId, periodStart, periodEnd)
-  ]);
+  const { transactions, collections } = await resolveSettlementItems(driverId, periodStart, periodEnd, selection);
 
   if (transactions.length === 0 && collections.length === 0) {
     throw new ValidationError("No pending wallet transactions or verified collections to settle for this driver in this period");

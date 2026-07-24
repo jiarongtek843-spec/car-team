@@ -274,6 +274,119 @@ describe("Wallet + Settlement (Module 3 scenarios)", () => {
   });
 });
 
+describe("Selective Settlement (Mobile UAT Bug Fix：功能五)", () => {
+  async function createCompletedLegEarning(girlName: string, driverId: number, earningCents: number) {
+    const booking = await bookingsService.createBooking({
+      girlName,
+      financialVersion: "V1",
+      totalAmountCents: earningCents * 2,
+      legs: [{ pickupLocation: "A", dropoffLocation: "B", earningAllocationCents: earningCents }]
+    });
+    bookingIds.push(booking.id);
+    const [leg] = booking.legs;
+    await fastForwardToOnBoard(leg.id, driverId);
+    const completed = await driverJobsService.completeLeg(driverId, leg.id, systemActor);
+    const transaction = await prisma.walletTransaction.findFirstOrThrow({ where: { legId: completed.id } });
+    return transaction;
+  }
+
+  it("只选一笔 Wallet Transaction 结算：只有被选的那笔变 SETTLED，其余三笔留 PENDING", async () => {
+    const driver = await createTestDriver("Selective Settlement Driver");
+    driverIds.push(driver.id);
+
+    // 对应需求范例：Booking#6 Leg1 RM51、Booking#7 Leg1 RM68、Booking#7 Leg2 RM68、
+    // Booking#8 Leg1 RM68——今天只想结算第一笔，其余留到下次。
+    const tx1 = await createCompletedLegEarning("Selective#1", driver.id, 5100);
+    const tx2 = await createCompletedLegEarning("Selective#2", driver.id, 6800);
+    const tx3 = await createCompletedLegEarning("Selective#3", driver.id, 6800);
+    const tx4 = await createCompletedLegEarning("Selective#4", driver.id, 6800);
+
+    const today = toDateStr(new Date());
+    const settlement = await settlementService.confirmSettlement(driver.id, today, today, systemActor, {
+      walletTransactionIds: [tx1.id]
+    });
+
+    expect(settlement.walletAmountCents).toBe(5100);
+    expect(settlement.collectionAmountCents).toBe(0);
+
+    const [reloaded1, reloaded2, reloaded3, reloaded4] = await Promise.all(
+      [tx1, tx2, tx3, tx4].map((tx) => prisma.walletTransaction.findUniqueOrThrow({ where: { id: tx.id } }))
+    );
+    expect(reloaded1.status).toBe("SETTLED");
+    expect(reloaded1.settlementId).toBe(settlement.id);
+    expect(reloaded2.status).toBe("PENDING");
+    expect(reloaded3.status).toBe("PENDING");
+    expect(reloaded4.status).toBe("PENDING");
+
+    // 没被选的三笔仍然完整出现在下一次的 Preview 里，不会因为「这个周期已经结算过一次」而消失。
+    const preview = await settlementService.previewSettlement(driver.id, today, today);
+    const previewIds = preview.transactions.map((tx) => tx.id);
+    expect(previewIds).toContain(tx2.id);
+    expect(previewIds).toContain(tx3.id);
+    expect(previewIds).toContain(tx4.id);
+    expect(previewIds).not.toContain(tx1.id);
+  });
+
+  it("已经被选进上一次 Settlement 的 Transaction 不能再被选第二次（同一笔不能结算两次）", async () => {
+    const driver = await createTestDriver("Selective Repeat Driver");
+    driverIds.push(driver.id);
+    const tx = await createCompletedLegEarning("SelectiveRepeat", driver.id, 4000);
+
+    const today = toDateStr(new Date());
+    await settlementService.confirmSettlement(driver.id, today, today, systemActor, { walletTransactionIds: [tx.id] });
+
+    await expect(
+      settlementService.confirmSettlement(driver.id, today, today, systemActor, { walletTransactionIds: [tx.id] })
+    ).rejects.toThrow(ConflictError);
+  });
+
+  it("两个 Admin 同时选同一笔结算：只有一个成功", async () => {
+    const driver = await createTestDriver("Selective Concurrent Driver");
+    driverIds.push(driver.id);
+    const tx = await createCompletedLegEarning("SelectiveConcurrent", driver.id, 4500);
+
+    const today = toDateStr(new Date());
+    const results = await Promise.allSettled([
+      settlementService.confirmSettlement(driver.id, today, today, systemActor, { walletTransactionIds: [tx.id] }),
+      settlementService.confirmSettlement(driver.id, today, today, systemActor, { walletTransactionIds: [tx.id] })
+    ]);
+
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+  });
+
+  it("选到的 Transaction 不属于这个 Driver 时拒绝（防止跨 Driver 混选）", async () => {
+    const driver = await createTestDriver("Selective Owner Driver");
+    const otherDriver = await createTestDriver("Selective Other Driver");
+    driverIds.push(driver.id, otherDriver.id);
+
+    const otherTx = await createCompletedLegEarning("SelectiveOtherDriver", otherDriver.id, 3000);
+
+    const today = toDateStr(new Date());
+    await expect(
+      settlementService.confirmSettlement(driver.id, today, today, systemActor, { walletTransactionIds: [otherTx.id] })
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("选到的 Transaction 落在目前日期范围之外时拒绝，要求先调整日期范围（v1 限制）", async () => {
+    const driver = await createTestDriver("Selective Outside Range Driver");
+    driverIds.push(driver.id);
+    const tx = await createCompletedLegEarning("SelectiveOutsideRange", driver.id, 2000);
+
+    // 故意选一个离今天很远（30 天前）的日期，而不是「昨天」——effectiveDate 是
+    // @db.Date 栏位，Prisma 对它的日期序列化是以 UTC 日期为准，跟这个测试环境的本地时区
+    // （UTC+8）换算「昨天 23:59:59.999 本地」时，UTC 日期可能跟「今天本地凌晨」落在同一个
+    // UTC 日历日，让「昨天」这个边界不够可靠。往前拉开 30 天可以确定不受任何时区换算影响，
+    // 单纯测「选到的项目落在目前显示周期之外时会被挡下来」这件事本身。
+    const farInThePast = toDateStr(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+    await expect(
+      settlementService.confirmSettlement(driver.id, farInThePast, farInThePast, systemActor, {
+        walletTransactionIds: [tx.id]
+      })
+    ).rejects.toThrow(ValidationError);
+  });
+});
+
 describe("Financial hardening scenarios", () => {
   it("supports both positive and negative manual adjustments", async () => {
     const driver = await createTestDriver("Hardening Adjustment Driver");

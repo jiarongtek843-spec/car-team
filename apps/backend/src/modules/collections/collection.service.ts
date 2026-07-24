@@ -1,7 +1,12 @@
 import type { CollectionPaymentMethod, CollectionPurpose, CollectionStatus, Prisma } from "@prisma/client";
+import path from "node:path";
+import fs from "node:fs";
 import { prisma } from "../../config/prisma.js";
-import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
+import { PERMISSIONS } from "../../common/permissions.js";
+import { uploadsRoot } from "../../common/upload.js";
+import type { AuthUser } from "../auth/auth.middleware.js";
 
 type TxClient = Prisma.TransactionClient | typeof prisma;
 
@@ -248,11 +253,17 @@ function endOfDay(date: Date) {
   return d;
 }
 
-/** 日结要纳入的代收款：只有 VERIFIED 才算数（Admin 已经确认这笔钱真的收到了）。 */
+/**
+ * 日结要纳入的代收款：只有 VERIFIED 才算数（Admin 已经确认这笔钱真的收到了），而且只能是
+ * collectedBy=DRIVER——Company 直接收款（collectedBy=COMPANY）不构成这个 Driver 的
+ * Settlement 负债，绝对不能被算成「Driver 欠公司」（Schema 阶段就留了这个过滤条件给
+ * Settlement Module，这里是真正落地的地方）。
+ */
 export async function getCollectionsInPeriod(driverId: number, periodStart: Date, periodEnd: Date) {
   return prisma.collection.findMany({
     where: {
       driverId,
+      collectedBy: "DRIVER",
       status: "VERIFIED",
       collectedAt: { gte: periodStart, lte: endOfDay(periodEnd) }
     },
@@ -265,9 +276,26 @@ export async function getCollectionsOutsidePeriod(driverId: number, periodStart:
   return prisma.collection.findMany({
     where: {
       driverId,
+      collectedBy: "DRIVER",
       status: "VERIFIED",
       OR: [{ collectedAt: { lt: periodStart } }, { collectedAt: { gt: endOfDay(periodEnd) } }]
     },
+    include: collectionSummaryInclude,
+    orderBy: { collectedAt: "asc" }
+  });
+}
+
+/**
+ * Mobile UAT Bug Fix（Driver Collection 纳入 Settlement）：COLLECTED 但还没被 Admin Verify
+ * 的代收款，之前完全不会出现在 Settlement Preview 的任何地方（不算 Included、也不算
+ * Excluded）——对 Admin 来说等于凭空消失，是「RM1000 代收没算进 Settlement，Driver
+ * Collected Amount 却显示 RM0.00」这个 Bug 报告的真正根因。这里刻意不加日期区间限制：
+ * 不管这笔钱是哪天代收的，只要还没 Verify，Admin 都得在 Settlement Preview 上看到它、
+ * 知道要先去 Verify，而不是被静默忽略。
+ */
+export async function getUnverifiedCollections(driverId: number) {
+  return prisma.collection.findMany({
+    where: { driverId, collectedBy: "DRIVER", status: "COLLECTED" },
     include: collectionSummaryInclude,
     orderBy: { collectedAt: "asc" }
   });
@@ -293,4 +321,33 @@ export async function reopenCollectionsForVoidedSettlement(client: TxClient, set
   if (result.count !== expectedCount) {
     throw new ConflictError("Collections linked to this settlement were already modified by another request");
   }
+}
+
+/**
+ * Proof 图片之前是靠 express.static 完全公开挂在 /uploads——任何登入的人（甚至没登入的人，
+ * 只要猜得到档名）都能看到任何 Driver 的代收凭证，是真实的权限漏洞。改成这支函式：先确认
+ * 这个档名真的对应一笔 Collection，再确认呼叫者是这笔 Collection 的本人 Driver 或是有
+ * collection:read 权限的 Admin/Manager，两者都不是才拒绝。找不到对应 Collection、或档案
+ * 已经不在磁盘上（例如 Railway 重新部署清空了本地磁盘），都丢 NotFoundError——由呼叫端
+ * （collection.controller.ts）统一回 404，前端显示「证明图片已不存在，请重新上传」。
+ */
+export async function getCollectionProofFilePath(filename: string, authUser: AuthUser): Promise<string> {
+  const relativePath = `/uploads/collections/${filename}`;
+  const collection = await prisma.collection.findFirst({ where: { proofImageUrl: relativePath } });
+  if (!collection) {
+    throw new NotFoundError("Proof image not found");
+  }
+
+  const isAdmin = authUser.permissions.includes(PERMISSIONS.COLLECTION_READ);
+  const isOwningDriver = authUser.driver !== null && collection.driverId === authUser.driver.id;
+  if (!isAdmin && !isOwningDriver) {
+    throw new ForbiddenError("Not allowed to view this proof image");
+  }
+
+  const filePath = path.join(uploadsRoot, "collections", filename);
+  if (!fs.existsSync(filePath)) {
+    throw new NotFoundError("Proof image file no longer exists on disk");
+  }
+
+  return filePath;
 }

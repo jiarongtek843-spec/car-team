@@ -49,3 +49,11 @@ export async function voidOne(req: Request, res: Response) {
   const collection = await collectionService.voidCollection(id, reason, actorFromRequest(req)!);
   res.json(collection);
 }
+
+export async function serveProof(req: Request, res: Response) {
+  const filePath = await collectionService.getCollectionProofFilePath(req.params.filename, req.authUser!);
+  // nosniff：跟 common/upload.ts 静态挂载那份保护理由一样，不让浏览器用内容猜测的方式
+  // 把这个档案当成别的类型执行，只信 sendFile 依副档名算出的 Content-Type。
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.sendFile(filePath);
+}

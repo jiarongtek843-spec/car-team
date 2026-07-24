@@ -57,6 +57,23 @@ Module 4 新增了 [Collection（代收款）](./collection.md)——一本跟 W
 - **Settlement Reference**：格式 `SET-YYYYMMDD-0001`（日期是建立当天，序号是当天第几笔），由 Backend 在 `confirmSettlement` 内产生，DB (`reference` 栏位) 加 `@unique` 双重保险。并发安全做法：用 `pg_advisory_xact_lock(hashtext('settlement-ref-<date>'))` 把「同一天」的序号产生锁住，同一天内的两个请求会排队而不是拿到重复序号；已经用测试验证「两个不同 Driver 同时确认日结」会各自拿到不同的 Reference。
 - `Settlement.status`：`DRAFT`（目前没有会产生 DRAFT 的流程，保留给以后可能的多步骤审核用）、`COMPLETED`（Preview 之后直接 Confirm 就是 COMPLETED）、`VOIDED`。COMPLETED 的 Settlement 不能再被编辑（Void 是唯一允许的状态转换，且只能做一次）。
 
+## Selective Settlement（挑选指定项目结算）
+
+Mobile UAT Bug Fix 阶段新增：Admin/Manager 不一定要把区间内全部项目一次结清，可以只挑其中几笔今天先结算，其余留 `PENDING`/`VERIFIED`，等下次再处理。
+
+- 日期范围（Period Start/End）只是「筛选/发现」工具，不是强制纳入的条件——Preview 回传的 `transactions`/`collections` 就是这个范围内「可以结算」的候选清单，Admin 从里面勾选实际要结算的项目。
+- Confirm 请求可以带 `selectedWalletTransactionIds`/`selectedCollectionIds`（都是可选参数）：
+  - **不传**：维持原本行为，整个区间内的项目全部结算（等同「预设全选」）。
+  - **传了**：只结算这两份清单里的 id，其余留在原状态，不会被这次 Settlement 动到。
+- Backend（[settlement.service.ts](../../apps/backend/src/modules/settlement/settlement.service.ts) 的 `resolveSettlementItems`）绝对不相信前端传来的最终金额，选到的每个 id 都会重新查一次 DB 并逐笔核对：
+  1. 这个 id 真的存在；
+  2. 属于同一个 Driver（不能跨 Driver 混选）；
+  3. 状态仍然可结算（Wallet 还是 `PENDING`，Collection 还是 `VERIFIED`——代表没被别的 Settlement 用过、没被 Void）；
+  4. Collection 必须是 `collectedBy=DRIVER`（Company 收款不该出现在这里，双重保险）；
+  5. 日期仍然落在这次请求的 Period 范围内——**v1 明确限制**：选到范围外的项目会直接拒绝（`ValidationError`），要求 Admin 自己先调整日期范围再重试，不支持跨范围手动选。
+- 通过全部检查后，才用重新查回来的记录本身重算 `walletAmountCents`/`collectionAmountCents`/`netAmountCents`，沿用既有的 DB Transaction + 条件式 `UPDATE ... WHERE status = ...` 并发保护（跟整区间结算完全同一套机制，两个 Admin 同时选中同一笔只会有一个成功）。
+- Frontend（[DailySettlementPage.tsx](../../apps/frontend/src/modules/settlement/DailySettlementPage.tsx)）在 Preview 载入时预设全选（等同旧行为），Admin 可以用 Checkbox 逐笔取消/勾选，或用「全选」/「取消全选」按钮批次操作；Settlement Summary 会即时依「目前勾选的项目」重算显示，不是显示整个区间的总额——这份重算只给 UI 用，Confirm 按下去实际结算多少钱一律由 Backend 用上面的规则重新算一次。
+
 ## Void Settlement
 
 - 只能对状态是 `COMPLETED` 的 Settlement 执行，不能删除任何 Settlement 记录。
@@ -125,6 +142,7 @@ Driver 端的 API 一律只能看到、操作自己的资料（用登入者的 `
 
 - 原始 Module 3 的 8 个场景（两个 Driver 各分RM24、同一个 Driver 拿两段共RM48、重复 Complete 不重复记账、只有真正完成的 Leg 才有收入、日结后历史保留、两个并发日结只成功一个、allocation 超过 Driver Pool 会被拒绝、Completed Leg 不能改 allocation）
 - 本次加强新增的场景：正数/负数 Settlement Adjustment、零金额 Adjustment 会被拒绝、同一个 Settlement 重复 Void 会被拒绝、Void 会产生正确的反向纪录（原始记录维持 SETTLED 不变、反向纪录是 PENDING 且带 `relatedSettlementId`）、日结只会纳入指定区间内的 Transaction（区间外的正确被排除）、两个不同 Driver 同时确认日结会拿到不重复的 Settlement Reference、已经有收入记录的 Booking 不能再改总价
+- Mobile UAT Bug Fix（Selective Settlement）新增场景：只选一笔 Transaction 结算时其余留 PENDING、已经被选进上一次 Settlement 的 Transaction 不能再被选第二次、两个 Admin 同时选同一笔只有一个成功、选到不属于这个 Driver 的 Transaction 会被拒绝、选到落在目前日期范围外的 Transaction 会被拒绝（要求先调整范围）——同一批场景也覆盖了 `collectedBy=DRIVER` 过滤（Company 收款不算 Driver 负债）与「未 Verify 的 Collection 出现在 Excluded、不再被静默忽略」，见 [collection.integration.test.ts](../../apps/backend/src/modules/collections/collection.integration.test.ts)
 
 加上 [commission.test.ts](../../apps/backend/src/modules/bookings/commission.test.ts) 覆盖抽成计算（含四舍五入规则）的纯函数逻辑。全部 32 个测试通过。
 

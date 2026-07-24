@@ -20,7 +20,9 @@ import { dispatchRouter } from "./modules/dispatch/dispatch.routes.js";
 import { bookingChargeRouter } from "./modules/bookingCharges/bookingCharge.routes.js";
 import { revenueSharingRouter } from "./modules/revenueSharing/revenueSharing.routes.js";
 import { errorHandler } from "./common/errorHandler.js";
-import { uploadsRoot } from "./common/upload.js";
+import { requireAuth } from "./modules/auth/auth.middleware.js";
+import { asyncHandler } from "./common/asyncHandler.js";
+import * as collectionController from "./modules/collections/collection.controller.js";
 
 export const app = express();
 
@@ -28,14 +30,15 @@ app.set("trust proxy", 1);
 app.use(cors({ origin: env.corsOrigins, credentials: true }));
 app.use(express.json());
 app.use(sessionMiddleware);
-// nosniff：就算未来哪个副档名判断出错、存进去一个内容跟副档名对不上的档案，也不让浏览器
-// 用内容猜测（MIME sniffing）的方式把它当成 HTML/JS 执行，只信 Content-Type header 宣告的类型。
-app.use(
-  "/uploads",
-  express.static(uploadsRoot, {
-    setHeaders: (res) => res.setHeader("X-Content-Type-Options", "nosniff")
-  })
-);
+
+// Mobile UAT Bug Fix：Collection Proof 图片之前是靠 express.static 完全公开挂在 /uploads——
+// 任何登入、甚至没登入的人只要猜得到档名就能看到任何 Driver 的代收凭证。改成一支要求
+// requireAuth、并在 collectionService.getCollectionProofFilePath 里逐笔核对「呼叫者是不是
+// 这笔 Collection 本人 Driver 或有 collection:read 权限的 Admin」的路由，不再是公开静态目录。
+// 挂在 /api/uploads/...（不是 /uploads/...）是刻意的：Railway 上 Frontend 只反向代理
+// /api/* 给 Backend（见 apps/frontend/server.js），挂在 /api 底下才能透过同源代理被
+// Safari/浏览器正常请求到，不需要另外再帮 /uploads 加一条代理规则。
+app.get("/api/uploads/collections/:filename", requireAuth, asyncHandler(collectionController.serveProof));
 
 app.use("/api/health", healthRouter);
 app.use("/api/auth", authRouter);

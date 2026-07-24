@@ -146,4 +146,83 @@ describe("DailySettlementPage（Mobile UX + Scheduling Sprint：文案与 Exclud
     await waitFor(() => expect(screen.getByText("Company Pays Driver RM 5.00")).toBeInTheDocument());
     expect(screen.queryByText("你选择的日期范围内没有可结算收入。")).not.toBeInTheDocument();
   });
+
+  it("Selective Settlement：取消勾选一笔后 Net Settlement 即时重算，Confirm 只送出还勾选的 id", async () => {
+    vi.mocked(http.get).mockImplementation((path: string) => {
+      if (path.startsWith("/api/drivers")) return Promise.resolve(drivers as never);
+      if (path.startsWith("/api/admin/settlements/preview")) {
+        return Promise.resolve(
+          makePreview({
+            transactions: [
+              {
+                id: 20,
+                driverId: 1,
+                driver: { id: 1, name: "Test Driver" },
+                bookingId: 6,
+                booking: { id: 6, girlName: "Girl A" },
+                legId: 60,
+                leg: { id: 60, sequence: 1 },
+                transactionType: "LEG_EARNING",
+                amountCents: 5100,
+                description: null,
+                status: "PENDING",
+                effectiveDate: "2026-07-24",
+                createdAt: "2026-07-24T00:00:00.000Z",
+                settledAt: null,
+                settlement: null,
+                relatedSettlementId: null,
+                relatedSettlement: null
+              },
+              {
+                id: 21,
+                driverId: 1,
+                driver: { id: 1, name: "Test Driver" },
+                bookingId: 7,
+                booking: { id: 7, girlName: "Girl B" },
+                legId: 70,
+                leg: { id: 70, sequence: 1 },
+                transactionType: "LEG_EARNING",
+                amountCents: 6800,
+                description: null,
+                status: "PENDING",
+                effectiveDate: "2026-07-24",
+                createdAt: "2026-07-24T00:00:00.000Z",
+                settledAt: null,
+                settlement: null,
+                relatedSettlementId: null,
+                relatedSettlement: null
+              }
+            ],
+            positiveAdjustmentsCents: 0,
+            walletAmountCents: 11900,
+            netAmountCents: 11900
+          }) as never
+        );
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+    vi.mocked(http.post).mockResolvedValue({ id: 1, reference: "SET-TEST-0001" } as never);
+
+    renderWithProviders(<DailySettlementPage />);
+    await selectDriver();
+
+    // 默认全选：两笔都在，Net Settlement 显示两笔加总 RM119.00。
+    await waitFor(() => expect(screen.getByText("Company Pays Driver RM 119.00")).toBeInTheDocument());
+
+    // 取消勾选第一笔（Booking #6 Leg 1 RM51），只剩 Booking #7 Leg 1 RM68。
+    const checkboxes = screen.getAllByRole("checkbox");
+    await userEvent.click(checkboxes[0]);
+
+    await waitFor(() => expect(screen.getByText("Company Pays Driver RM 68.00")).toBeInTheDocument());
+    expect(screen.getByText("1 / 2 笔")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Confirm Settlement/ }));
+
+    await waitFor(() =>
+      expect(http.post).toHaveBeenCalledWith(
+        "/api/admin/settlements",
+        expect.objectContaining({ selectedWalletTransactionIds: [21], selectedCollectionIds: [] })
+      )
+    );
+  });
 });

@@ -1,4 +1,4 @@
-import type { LegStatus, Prisma } from "@prisma/client";
+import type { LegStatus, Prisma, WalletTransactionStatus } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { NotFoundError } from "../../common/errors.js";
 import { recalculateBookingStatus } from "../bookings/bookings.service.js";
@@ -10,15 +10,42 @@ import type { AuditActor } from "../../common/audit.js";
 const bookingSummaryInclude = {
   booking: {
     select: { id: true, girlName: true, totalAmountCents: true, driverPoolAmountCents: true, notes: true, status: true }
+  },
+  // Mobile UAT Bug Fix（Completed Job 显示金额）：Driver 只能看到「这条 Leg 自己那份」的
+  // 收入，不是 Booking 的顾客总车费（那是 booking.totalAmountCents），也不是其他 Driver 的
+  // 分润或公司抽成。V1 Booking 用 LEG_EARNING、V2 用 REVENUE_SHARE_PAYOUT，两者互斥
+  // （@@unique([legId, transactionType]) 加上同一张 Booking 不会同时出现两种类型），所以
+  // 这里最多只会查到一笔。V2 的实际发放金额是按 earningAllocationCents 当权重、从
+  // Revenue Sharing Snapshot 按比例分配算出来的，不等同于 earningAllocationCents 本身，
+  // 所以要读实际产生的 WalletTransaction.amountCents，不能直接显示 earningAllocationCents。
+  walletTransactions: {
+    where: { transactionType: { in: ["LEG_EARNING", "REVENUE_SHARE_PAYOUT"] } },
+    select: { amountCents: true, status: true, settlement: { select: { reference: true } } }
   }
-} as const;
+} satisfies Prisma.LegInclude;
 
-export function listMyLegs(driverId: number) {
-  return prisma.leg.findMany({
+function serializeLeg<
+  T extends {
+    walletTransactions: { amountCents: number; status: WalletTransactionStatus; settlement: { reference: string } | null }[];
+  }
+>(leg: T) {
+  const { walletTransactions, ...rest } = leg;
+  const earning = walletTransactions[0] ?? null;
+  return {
+    ...rest,
+    driverEarningCents: earning?.amountCents ?? null,
+    walletStatus: earning?.status ?? null,
+    settlementReference: earning?.settlement?.reference ?? null
+  };
+}
+
+export async function listMyLegs(driverId: number) {
+  const legs = await prisma.leg.findMany({
     where: { driverId },
     include: bookingSummaryInclude,
     orderBy: [{ scheduledAt: "asc" }, { sequence: "asc" }]
   });
+  return legs.map(serializeLeg);
 }
 
 async function getMyLegOrThrow(driverId: number, legId: number) {
@@ -29,7 +56,7 @@ async function getMyLegOrThrow(driverId: number, legId: number) {
   if (!leg) {
     throw new NotFoundError(`Leg ${legId} not found`);
   }
-  return leg;
+  return serializeLeg(leg);
 }
 
 async function transitionAndReturn(

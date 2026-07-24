@@ -139,7 +139,7 @@ Start: npm run start     （serve -s dist -l ${PORT:-3000}，纯静态文件服�
 - **没有自动化的 CI/CD**：这次是用 CLI 手动 `railway up` 部署，之后每次要更新 Staging 环境上的代码，都要重新执行一次同样的 `railway up` 指令（或之后接上 GitHub Actions/Railway 的 GitHub 集成自动化，这次没有做）。
 - **Frontend Build-Time 环境变量的隐藏坑**：`VITE_API_BASE_URL` 一旦改了，一定要重新 Build 才会生效——只改 Railway 变量、不重新部署，Frontend 会继续打旧的 Backend 网址，容易被误以为「设定没生效」。
 - **`CORS_ORIGIN` 需要手动维护成 Frontend 的实际网域**：Railway 分配的网域在第一次部署前无法预知，所以部署顺序上一定要先部署完 Frontend 拿到网址，再回头设定 Backend 的 `CORS_ORIGIN`，中间会有一段时间 Backend 的 CORS 设定是不完整/占位的。
-- **Partial Collection 跨行金额验证、Settlement 是否该排除 `collectedBy=COMPANY` 收款**：这些都是 Collection V2 Schema 阶段已经记录的已知限制（[collection.md](../modules/collection.md)），跟这次 Railway 部署无关，只是提醒还没解决。
+- **Partial Collection 跨行金额验证**：这是 Collection V2 Schema 阶段已经记录的已知限制（[collection.md](../modules/collection.md)），跟这次 Railway 部署无关，只是提醒还没解决。（`Settlement 是否该排除 collectedBy=COMPANY 收款` 已经在 Mobile UAT Bug Fix 阶段解决——`getCollectionsInPeriod`/`getCollectionsOutsidePeriod` 现在会过滤 `collectedBy=DRIVER`，Company 直接收款不会再被算成 Driver 欠公司的负债。）
 
 ---
 

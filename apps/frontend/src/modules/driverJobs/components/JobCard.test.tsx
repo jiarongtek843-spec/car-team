@@ -30,7 +30,10 @@ function makeLeg(overrides: Partial<DriverLeg>): DriverLeg {
     passengerOnBoardAt: null,
     completedAt: null,
     rejectedAt: null,
-    booking: { id: 10, girlName: "Test Girl", carFee: null, notes: null, status: "IN_PROGRESS" },
+    driverEarningCents: null,
+    walletStatus: null,
+    settlementReference: null,
+    booking: { id: 10, girlName: "Test Girl", totalAmountCents: 0, notes: null, status: "IN_PROGRESS" },
     ...overrides
   };
 }

@@ -124,7 +124,7 @@ Collection 参与 Daily Settlement，但完全不影响 Wallet 既有逻辑：
 - `PENDING` 状态目前没有任何流程会产生，保留给未来「Admin 指派代收任务」用
 - 没有金额汇总报表，只有明细列表
 - Void Settlement 重开的 Collection 不会另外写逐笔 Audit Log，只在 Settlement 层级记录数量
-- **Settlement 还没有依 `collectedBy` 过滤**：`collectionAmountCents` 目前仍然加总该 Driver 名下所有 `VERIFIED` 的 Collection，不区分 `collectedBy`。照 [collection-module-v1.md](../design/collection-module-v1.md) 第 4 章的设计，`collectedBy=COMPANY` 的记录不该计入 Driver 的 Settlement 负债——但这次明确不动 Settlement（用户指示），这个过滤逻辑要等 Settlement Module 真正开工时才会补上。目前 Collection API 也还没有任何入口能建立 `collectedBy=COMPANY` 的记录，所以这个限制暂时不影响现有业务。
+- ~~Settlement 还没有依 `collectedBy` 过滤~~：已在 Mobile UAT Bug Fix 阶段解决——`collection.service.ts` 的 `getCollectionsInPeriod`/`getCollectionsOutsidePeriod`/`getUnverifiedCollections` 现在都会过滤 `collectedBy=DRIVER`，照 [collection-module-v1.md](../design/collection-module-v1.md) 第 4 章的设计，`collectedBy=COMPANY` 的记录不再计入 Driver 的 Settlement 负债。同一阶段也修复了「`COLLECTED` 但还没 Verify 的代收款会从 Settlement Preview 完全消失」的问题：现在会出现在 Excluded Collections，标注「收款尚未审核」，不再被静默忽略。
 - **Collected By / Receiver 目前没有任何 API 会写入**：`collection.service.ts` 的 `createCollection` 还是只会建立 `collectedBy=DRIVER`（沿用 DEFAULT），Admin/Driver 都没有介面可以指定 Collected By 或填写 Receiver。这次是 Schema-only 阶段，实际的 Create/Update 支援留给下一阶段的 Collection API。
 - **Receiver 的结构化程度还没决定**：`receiverType=COMPANY` 时 `receiverId` 目前恒为 `NULL`（没有「公司收款账户」资料表），只能靠自由文本 `receiverLabel`。要不要为公司收款账户建一张正式的资料表，是 [collection-module-v1.md](../design/collection-module-v1.md) 第 12 章列出的尚未决定的业务规则。
 - **Partial Collection 的跨行金额验证没有 DB 层保证**：「同一组 Partial Collection 的 collectedAmount 总额不能超过 expectedAmount」是跨行加总规则，Postgres CHECK constraint 做不到跨行验证，这次没有加 Trigger，留给未来 API 阶段做 Service 层验证（跟 Revenue Sharing/BookingCharge 的既有验证方式一致，不是这个专案第一次这样处理）。

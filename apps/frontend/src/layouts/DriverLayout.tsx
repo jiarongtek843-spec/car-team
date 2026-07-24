@@ -3,7 +3,7 @@ import { Button, Drawer, Layout, Menu, Space, Typography } from "antd";
 import { MenuOutlined } from "@ant-design/icons";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../modules/auth/AuthContext";
-import { DriverPresenceToggle } from "../modules/gps/components/DriverPresenceToggle";
+import { MyPresenceBadge } from "../modules/gps/components/MyPresenceBadge";
 import { useIsMobile } from "../common/useIsMobile";
 
 const { Header, Content } = Layout;
@@ -48,7 +48,7 @@ export function DriverLayout() {
           <>
             <Menu theme="dark" mode="horizontal" selectedKeys={[location.pathname]} items={NAV_ITEMS} style={{ flex: 1 }} />
             <Space size="large">
-              <DriverPresenceToggle />
+              <MyPresenceBadge />
               <Typography.Text style={{ color: "#fff" }}>{user?.driver?.name ?? user?.username}</Typography.Text>
               <a style={{ color: "#fff" }} onClick={handleLogout}>
                 登出
@@ -57,8 +57,8 @@ export function DriverLayout() {
           </>
         )}
         {isMobile && (
-          <div onClick={(e) => e.stopPropagation()}>
-            <DriverPresenceToggle />
+          <div style={{ marginLeft: "auto" }}>
+            <MyPresenceBadge />
           </div>
         )}
       </Header>
