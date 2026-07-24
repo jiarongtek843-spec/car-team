@@ -31,6 +31,20 @@ app.use(cors({ origin: env.corsOrigins, credentials: true }));
 app.use(express.json());
 app.use(sessionMiddleware);
 
+// Mobile UAT Bug Fix（Driver Online 状态同步）：这个 API 底下每一支 GET 都是 Session/
+// Driver 专属的即时资料（presence、wallet、booking 状态……），没有任何一支是可以被浏览器
+// 或中间的网络设备快取的。实测发现 iOS Safari 在「POST /online 成功后，react-query
+// 立刻发出的 GET /driver/presence/me」这个情境下，即使 Server 完全没送 Cache-Control，
+// 还是会用自己 HTTP cache 里那份『上线前』的旧回应打发，造成 Toast 显示已上线、但
+// Header/首页 Switch 两边读到的还是旧状态。明确送 `Cache-Control: no-store` 是唯一能
+// 保证浏览器/中间代理都不会快取的做法，跟 Frontend 那份 `fetch(..., {cache:"no-store"})`
+// 是同一个修复的两端（Frontend 控制自己怎么发请求，这里保证 Server 回应本身也明确声明
+// 不可快取，两层缺一层都可能在某些浏览器/网络环境下失效）。
+app.use("/api", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
 // Mobile UAT Bug Fix：Collection Proof 图片之前是靠 express.static 完全公开挂在 /uploads——
 // 任何登入、甚至没登入的人只要猜得到档名就能看到任何 Driver 的代收凭证。改成一支要求
 // requireAuth、并在 collectionService.getCollectionProofFilePath 里逐笔核对「呼叫者是不是

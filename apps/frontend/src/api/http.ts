@@ -36,6 +36,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
+    // Mobile UAT Bug Fix（Driver Online 状态同步）：iOS Safari 对 fetch() 的 GET 请求会用
+    // 自己的 HTTP cache（就算 Server 完全没送 Cache-Control，WebKit 在某些情况下还是会
+    // heuristically 快取），实测出现过「POST /online 成功、Toast 显示已上线，但接下来
+    // react-query invalidateQueries 触发的 GET /driver/presence/me 被 Safari 用快取里
+    // 那份『上线前』的旧回应打发，Header/首页 Switch 两边都读到同一份被快取的旧资料，
+    // 看起来像状态没同步」。这个 App 里所有 GET 都是每个 Session 专属的动态资料，没有任何
+    // 一支 API 是可以被浏览器快取的，所以直接在共用的 fetch 入口统一关闭，不用一支一支 API
+    // 各自处理。
+    cache: "no-store",
     ...options
   });
 
