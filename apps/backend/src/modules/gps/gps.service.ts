@@ -4,6 +4,7 @@ import { ConflictError, NotFoundError, ValidationError } from "../../common/erro
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import { ACTIVE_LEG_STATUSES } from "../bookings/bookings.status.js";
 import { getCompanySettings } from "../companySettings/companySettings.service.js";
+import { pushDebugLog } from "../../common/debugLog.js";
 
 /**
  * 保底默认值，只在 `computePresenceStatus` 没有明确传阈值时使用（例如既有的单元测试）。
@@ -247,6 +248,7 @@ async function selfHealStaleOnlineDrivers(driverIds: number[]) {
   // 里立刻把刚设成 true 的 isOnline 打回 false——这是最可疑的根因，先加 log 确认是否真的
   // 是这条路径在作怪，确认后要整段移除。
   console.log("[PRESENCE_DEBUG] selfHealStaleOnlineDrivers:triggered", JSON.stringify({ driverIds, at: new Date().toISOString() }));
+  pushDebugLog("selfHealStaleOnlineDrivers:triggered", { driverIds });
   await prisma.driver.updateMany({
     where: { id: { in: driverIds }, isOnline: true },
     data: { isOnline: false, onlineSince: null }
@@ -319,20 +321,19 @@ export async function getDriverPresence(driverId: number) {
   // TEMPORARY DEBUG LOGGING（同上，诊断用，确认根因后移除）：把算 status 用到的每一个原始
   // 输入都印出来——driver.isOnline/onlineSince 是不是真的写进去了、thresholds 是不是被
   // Staging 的 CompanySettings 改成异常小的值、算出来的 secondsSinceUpdate 是多少。
-  console.log(
-    "[PRESENCE_DEBUG] getDriverPresence:computed",
-    JSON.stringify({
-      driverId,
-      dbIsOnline: driver.isOnline,
-      dbOnlineSince: driver.onlineSince,
-      hasLocation: driver.location !== null,
-      locationReceivedAt: driver.location?.receivedAt ?? null,
-      thresholds,
-      computedStatus: payload.status,
-      computedSecondsSinceUpdate: payload.secondsSinceUpdate,
-      now: now.toISOString()
-    })
-  );
+  const debugPayload = {
+    driverId,
+    dbIsOnline: driver.isOnline,
+    dbOnlineSince: driver.onlineSince,
+    hasLocation: driver.location !== null,
+    locationReceivedAt: driver.location?.receivedAt ?? null,
+    thresholds,
+    computedStatus: payload.status,
+    computedSecondsSinceUpdate: payload.secondsSinceUpdate,
+    now: now.toISOString()
+  };
+  console.log("[PRESENCE_DEBUG] getDriverPresence:computed", JSON.stringify(debugPayload));
+  pushDebugLog("getDriverPresence:computed", debugPayload);
 
   if (payload.status === "OFFLINE" && driver.isOnline) {
     await selfHealStaleOnlineDrivers([driver.id]);

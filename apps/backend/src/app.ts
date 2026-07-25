@@ -23,6 +23,7 @@ import { errorHandler } from "./common/errorHandler.js";
 import { requireAuth } from "./modules/auth/auth.middleware.js";
 import { asyncHandler } from "./common/asyncHandler.js";
 import * as collectionController from "./modules/collections/collection.controller.js";
+import { getDebugLog } from "./common/debugLog.js";
 
 export const app = express();
 
@@ -53,6 +54,20 @@ app.use("/api", (req, res, next) => {
 // /api/* 给 Backend（见 apps/frontend/server.js），挂在 /api 底下才能透过同源代理被
 // Safari/浏览器正常请求到，不需要另外再帮 /uploads 加一条代理规则。
 app.get("/api/uploads/collections/:filename", requireAuth, asyncHandler(collectionController.serveProof));
+
+// TEMPORARY DEBUG ENDPOINT（Mobile UAT Bug Fix：Driver Online 状态在真实手机上还是回报
+// Offline，需要不靠人工去 Railway Dashboard 复制 log 就能直接读到 request/response
+// 证据）。用一个只有诊断者知道的固定 token 当门槛（不是真正的权限系统，只是不想完全公开），
+// 回传的都是 driverId/布林值/时间戳等非敏感的操作性资料，不含密码等敏感栏位。诊断确认
+// 根因之后要整支移除，不是永久保留的机制。
+app.get("/api/debug/presence-log", (req, res) => {
+  if (req.query.token !== "presence-debug-x7k2m9qp4w") {
+    res.status(404).end();
+    return;
+  }
+  res.setHeader("Cache-Control", "no-store");
+  res.json(getDebugLog());
+});
 
 app.use("/api/health", healthRouter);
 app.use("/api/auth", authRouter);

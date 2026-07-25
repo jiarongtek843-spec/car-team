@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { ForbiddenError } from "../../common/errors.js";
 import { actorFromRequest } from "../../common/audit.js";
+import { pushDebugLog } from "../../common/debugLog.js";
 import * as gpsService from "./gps.service.js";
 
 const pingSchema = z.object({
@@ -22,10 +23,13 @@ function getDriverId(req: Request): number {
 }
 
 // TEMPORARY DEBUG LOGGING（Mobile UAT Bug Fix：Driver Online 状态在真实手机上还是回报
-// Offline，前两轮修复都没解决，需要 Railway 上的真实 request/response 证据才能继续查）。
-// 诊断确认根因之后要整段移除，不是永久保留的机制。
+// Offline，前两轮修复都没解决，需要 Railway 上的真实 request/response 证据才能继续查，
+// 又不想每次都要人工去 Railway Dashboard 复制 log，所以同时写进内存 ring buffer，
+// 可以直接从 GET /api/debug/presence-log 读出来）。诊断确认根因之后要整段移除，
+// 不是永久保留的机制。
 function debugLog(label: string, data: Record<string, unknown>) {
   console.log(`[PRESENCE_DEBUG] ${label}`, JSON.stringify({ ...data, at: new Date().toISOString() }));
+  pushDebugLog(label, data);
 }
 
 /**
