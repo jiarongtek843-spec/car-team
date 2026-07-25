@@ -70,6 +70,34 @@ describe("GPS live tracking (Module 5 scenarios)", () => {
     expect(presenceAfterOffline.status).toBe("OFFLINE");
   });
 
+  it("Mobile UAT Bug Fix：重新上线时，DB 里留着上一次上线时的旧定位也不会被误判成 Offline（Railway 实测根因）", async () => {
+    // 完整重现 Railway Staging 抓到的真实场景：Driver 之前上线过、收到过一次 GPS ping
+    // （DriverLocation 因此有资料），然后下线（DriverLocation 不会被清掉，继续留着这笔
+    // 旧资料）。现在重新点上线：旧版逻辑会用那笔旧定位的时间当新鲜度基准，判定成
+    // 「太久没更新」→ OFFLINE，还会被 selfHealStaleOnlineDrivers 在同一个 request 里
+    // 把刚设成 true 的 isOnline 打回 false，导致 goOnline 自己的 response 都已经是
+    // Offline，Toast 显示成功但画面永远显示 Offline。
+    const driver = await createTestDriver("Stale Location Reonline Driver");
+    driverIds.push(driver.id);
+
+    await gpsService.goOnline(driver.id, systemActor);
+    await gpsService.recordPing(driver.id, { latitude: 3.1, longitude: 101.6 });
+    await gpsService.goOffline(driver.id, systemActor);
+
+    // 模拟这笔旧定位是很久以前留下来的（不是刚刚那次 ping 的真实时间）。
+    await prisma.driverLocation.update({
+      where: { driverId: driver.id },
+      data: { receivedAt: new Date(Date.now() - 28 * 60 * 60 * 1000) }
+    });
+
+    await gpsService.goOnline(driver.id, systemActor);
+    const presence = await gpsService.getDriverPresence(driver.id);
+    expect(presence.status).toBe("ONLINE");
+
+    const reloadedDriver = await prisma.driver.findUniqueOrThrow({ where: { id: driver.id } });
+    expect(reloadedDriver.isOnline).toBe(true);
+  });
+
   it("rejects a GPS ping when the driver has not gone online", async () => {
     const driver = await createTestDriver("Offline Ping Driver");
     driverIds.push(driver.id);
@@ -121,6 +149,11 @@ describe("GPS live tracking (Module 5 scenarios)", () => {
     await gpsService.recordPing(driver.id, { latitude: 3.1, longitude: 101.6 });
 
     const staleTime = new Date(Date.now() - (gpsService.AUTO_OFFLINE_THRESHOLD_SECONDS + 30) * 1000);
+    // onlineSince 也要跟着往前推：Mobile UAT Bug Fix 之后，只有「不早于 onlineSince」的
+    // 定位才会被拿来当新鲜度基准（不然会跟上一次上线留下的旧定位分不出来）。这里要模拟的是
+    // 「这次持续在线期间最后一个 ping 之后就没再更新」，不是「上一次上线留下的旧定位」，
+    // 所以 onlineSince 要跟着一起往前推，不能只改 location 的时间。
+    await prisma.driver.update({ where: { id: driver.id }, data: { onlineSince: staleTime } });
     await prisma.driverLocation.update({ where: { driverId: driver.id }, data: { receivedAt: staleTime } });
 
     const list = await gpsService.listDriverPresence(false);

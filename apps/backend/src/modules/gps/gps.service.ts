@@ -4,7 +4,6 @@ import { ConflictError, NotFoundError, ValidationError } from "../../common/erro
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import { ACTIVE_LEG_STATUSES } from "../bookings/bookings.status.js";
 import { getCompanySettings } from "../companySettings/companySettings.service.js";
-import { pushDebugLog } from "../../common/debugLog.js";
 
 /**
  * 保底默认值，只在 `computePresenceStatus` 没有明确传阈值时使用（例如既有的单元测试）。
@@ -63,7 +62,23 @@ export function computePresenceStatus(input: ComputePresenceInput): PresenceResu
     return { status: "OFFLINE", secondsSinceUpdate: null };
   }
 
-  const referenceTime = input.locationReceivedAt ?? input.onlineSince;
+  // Mobile UAT Bug Fix（Driver Online 状态在真实手机上点了永远还是回报 Offline，Railway
+  // 实测 debug log 抓到的真正根因）：DriverLocation 是「最后已知位置」，Driver 下线之后
+  // 不会被清掉——所以一个先前上线过、后来下线的 Driver，DB 里会留着一笔很旧的
+  // locationReceivedAt。这里原本无条件优先用 locationReceivedAt 当新鲜度基准
+  // （`locationReceivedAt ?? onlineSince`），代表只要有任何位置纪录、不管多旧，都会盖过
+  // 刚刚才设的 onlineSince——实测出现过 Driver 刚点击上线（onlineSince 是几毫秒前），
+  // 但因为 DB 里还留着一笔 28 小时前的旧定位，直接被算成「28 小时没更新」→ OFFLINE，
+  // 而且这个误判会在同一个 request 里透过下面的 self-heal 逻辑把 isOnline 立刻写回
+  // false，所以连 goOnline 自己的 API response 都已经是 OFFLINE 了。
+  // 修正：只有「这笔定位是在这次上线之后才收到的」（locationReceivedAt >= onlineSince）
+  // 才可信、才拿来当新鲜度基准；比 onlineSince 还旧的定位视同「这次上线还没收到任何
+  // ping」，用 onlineSince 本身当基准（=刚上线，新鲜），等真的收到这次上线之后的第一个
+  // ping，locationReceivedAt 自然会晚于 onlineSince，重新接手当基准。
+  const referenceTime =
+    input.locationReceivedAt && (!input.onlineSince || input.locationReceivedAt >= input.onlineSince)
+      ? input.locationReceivedAt
+      : input.onlineSince;
   const secondsSinceUpdate = referenceTime
     ? Math.max(0, Math.floor((now.getTime() - referenceTime.getTime()) / 1000))
     : null;
@@ -242,13 +257,6 @@ function toPresencePayload(
 /** 每次读取时顺手把「已经超过自动离线门槛、但 DB 里 isOnline 还是 true」的 Driver 打回 false。 */
 async function selfHealStaleOnlineDrivers(driverIds: number[]) {
   if (driverIds.length === 0) return;
-  // TEMPORARY DEBUG LOGGING（Mobile UAT Bug Fix：诊断真实手机上点了 Go Online 之后
-  // presence 还是回报 Offline）：这支函式如果在 goOnline 呼叫的当下就被触发，代表
-  // computePresenceStatus 判定「isOnline=true 但已经超过 threshold」，会在同一个 request
-  // 里立刻把刚设成 true 的 isOnline 打回 false——这是最可疑的根因，先加 log 确认是否真的
-  // 是这条路径在作怪，确认后要整段移除。
-  console.log("[PRESENCE_DEBUG] selfHealStaleOnlineDrivers:triggered", JSON.stringify({ driverIds, at: new Date().toISOString() }));
-  pushDebugLog("selfHealStaleOnlineDrivers:triggered", { driverIds });
   await prisma.driver.updateMany({
     where: { id: { in: driverIds }, isOnline: true },
     data: { isOnline: false, onlineSince: null }
@@ -317,23 +325,6 @@ export async function getDriverPresence(driverId: number) {
   });
 
   const payload = toPresencePayload(driver, driver.location, activeLeg, now, thresholds);
-
-  // TEMPORARY DEBUG LOGGING（同上，诊断用，确认根因后移除）：把算 status 用到的每一个原始
-  // 输入都印出来——driver.isOnline/onlineSince 是不是真的写进去了、thresholds 是不是被
-  // Staging 的 CompanySettings 改成异常小的值、算出来的 secondsSinceUpdate 是多少。
-  const debugPayload = {
-    driverId,
-    dbIsOnline: driver.isOnline,
-    dbOnlineSince: driver.onlineSince,
-    hasLocation: driver.location !== null,
-    locationReceivedAt: driver.location?.receivedAt ?? null,
-    thresholds,
-    computedStatus: payload.status,
-    computedSecondsSinceUpdate: payload.secondsSinceUpdate,
-    now: now.toISOString()
-  };
-  console.log("[PRESENCE_DEBUG] getDriverPresence:computed", JSON.stringify(debugPayload));
-  pushDebugLog("getDriverPresence:computed", debugPayload);
 
   if (payload.status === "OFFLINE" && driver.isOnline) {
     await selfHealStaleOnlineDrivers([driver.id]);
