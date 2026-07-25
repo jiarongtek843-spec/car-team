@@ -241,6 +241,12 @@ function toPresencePayload(
 /** 每次读取时顺手把「已经超过自动离线门槛、但 DB 里 isOnline 还是 true」的 Driver 打回 false。 */
 async function selfHealStaleOnlineDrivers(driverIds: number[]) {
   if (driverIds.length === 0) return;
+  // TEMPORARY DEBUG LOGGING（Mobile UAT Bug Fix：诊断真实手机上点了 Go Online 之后
+  // presence 还是回报 Offline）：这支函式如果在 goOnline 呼叫的当下就被触发，代表
+  // computePresenceStatus 判定「isOnline=true 但已经超过 threshold」，会在同一个 request
+  // 里立刻把刚设成 true 的 isOnline 打回 false——这是最可疑的根因，先加 log 确认是否真的
+  // 是这条路径在作怪，确认后要整段移除。
+  console.log("[PRESENCE_DEBUG] selfHealStaleOnlineDrivers:triggered", JSON.stringify({ driverIds, at: new Date().toISOString() }));
   await prisma.driver.updateMany({
     where: { id: { in: driverIds }, isOnline: true },
     data: { isOnline: false, onlineSince: null }
@@ -309,6 +315,24 @@ export async function getDriverPresence(driverId: number) {
   });
 
   const payload = toPresencePayload(driver, driver.location, activeLeg, now, thresholds);
+
+  // TEMPORARY DEBUG LOGGING（同上，诊断用，确认根因后移除）：把算 status 用到的每一个原始
+  // 输入都印出来——driver.isOnline/onlineSince 是不是真的写进去了、thresholds 是不是被
+  // Staging 的 CompanySettings 改成异常小的值、算出来的 secondsSinceUpdate 是多少。
+  console.log(
+    "[PRESENCE_DEBUG] getDriverPresence:computed",
+    JSON.stringify({
+      driverId,
+      dbIsOnline: driver.isOnline,
+      dbOnlineSince: driver.onlineSince,
+      hasLocation: driver.location !== null,
+      locationReceivedAt: driver.location?.receivedAt ?? null,
+      thresholds,
+      computedStatus: payload.status,
+      computedSecondsSinceUpdate: payload.secondsSinceUpdate,
+      now: now.toISOString()
+    })
+  );
 
   if (payload.status === "OFFLINE" && driver.isOnline) {
     await selfHealStaleOnlineDrivers([driver.id]);

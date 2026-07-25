@@ -21,6 +21,13 @@ function getDriverId(req: Request): number {
   return driverId;
 }
 
+// TEMPORARY DEBUG LOGGING（Mobile UAT Bug Fix：Driver Online 状态在真实手机上还是回报
+// Offline，前两轮修复都没解决，需要 Railway 上的真实 request/response 证据才能继续查）。
+// 诊断确认根因之后要整段移除，不是永久保留的机制。
+function debugLog(label: string, data: Record<string, unknown>) {
+  console.log(`[PRESENCE_DEBUG] ${label}`, JSON.stringify({ ...data, at: new Date().toISOString() }));
+}
+
 /**
  * Mobile UAT Bug Fix（Driver Online 状态同步）：之前这里只回传原始 Driver 记录（isOnline 布林值），
  * Frontend 得另外再打一次 GET /me、靠 react-query 的 invalidateQueries 重新拉一次才能知道
@@ -32,15 +39,41 @@ function getDriverId(req: Request): number {
  */
 export async function goOnline(req: Request, res: Response) {
   const driverId = getDriverId(req);
-  await gpsService.goOnline(driverId, actorFromRequest(req)!);
+  const userId = req.authUser?.id;
+  debugLog("goOnline:request", { driverId, userId, sessionID: req.sessionID });
+
+  const updatedDriver = await gpsService.goOnline(driverId, actorFromRequest(req)!);
+  debugLog("goOnline:afterDbWrite", {
+    driverId,
+    isOnline: updatedDriver.isOnline,
+    onlineSince: updatedDriver.onlineSince
+  });
+
   const presence = await gpsService.getDriverPresence(driverId);
+  debugLog("goOnline:response", {
+    driverId,
+    status: presence.status,
+    secondsSinceUpdate: presence.secondsSinceUpdate,
+    hasLocation: presence.location !== null,
+    hasActiveLeg: presence.activeLeg !== null
+  });
   res.json(presence);
 }
 
 export async function goOffline(req: Request, res: Response) {
   const driverId = getDriverId(req);
-  await gpsService.goOffline(driverId, actorFromRequest(req)!);
+  const userId = req.authUser?.id;
+  debugLog("goOffline:request", { driverId, userId, sessionID: req.sessionID });
+
+  const updatedDriver = await gpsService.goOffline(driverId, actorFromRequest(req)!);
+  debugLog("goOffline:afterDbWrite", {
+    driverId,
+    isOnline: updatedDriver.isOnline,
+    onlineSince: updatedDriver.onlineSince
+  });
+
   const presence = await gpsService.getDriverPresence(driverId);
+  debugLog("goOffline:response", { driverId, status: presence.status });
   res.json(presence);
 }
 
@@ -48,11 +81,20 @@ export async function ping(req: Request, res: Response) {
   const driverId = getDriverId(req);
   const input = pingSchema.parse(req.body);
   const location = await gpsService.recordPing(driverId, input);
+  debugLog("ping:response", { driverId, latitude: location.latitude, longitude: location.longitude });
   res.status(201).json(location);
 }
 
 export async function me(req: Request, res: Response) {
   const driverId = getDriverId(req);
+  const userId = req.authUser?.id;
   const presence = await gpsService.getDriverPresence(driverId);
+  debugLog("me:response", {
+    driverId,
+    userId,
+    sessionID: req.sessionID,
+    status: presence.status,
+    secondsSinceUpdate: presence.secondsSinceUpdate
+  });
   res.json(presence);
 }
