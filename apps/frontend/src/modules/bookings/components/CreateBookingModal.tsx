@@ -34,7 +34,8 @@ interface FormLeg {
   dropoffLocation?: string;
   // 日期跟时间刻意拆成两个独立栏位输入，才能满足「Scheduled Date 和 Scheduled Time
   // 必须清楚分开显示」；送出时合并回同一个 scheduledAt（安全复用既有栏位，不新增
-  // 会跟它冲突的栏位）。Estimated Finish 也是同一套拆法。
+  // 会跟它冲突的栏位）。Estimated Finish 也是同一套拆法，但只有 OUTBOUND（或
+  // ADDITIONAL）才会显示这两个栏位——RETURN 不需要。
   scheduledDate?: Dayjs;
   scheduledTime?: Dayjs;
   timeNotConfirmed?: boolean;
@@ -65,8 +66,8 @@ const LEG_TYPE_OPTIONS = (Object.keys(LEG_TYPE_LABEL) as LegType[]).map((value) 
 // 新建 Booking 预设直接给去程 + 回程两个 Leg——这是核心业务资料（几点载去、几点载回），
 // 不该让使用者手动想到要自己加。之后仍然可以用「+ 新增行程」加第三个 ADDITIONAL Leg，
 // 也可以把预设的两个都删掉（例如这张 Booking 目前还不知道任何行程细节）。
-// Mobile UAT Round 2：去程起点 / 回程终点默认都是公司基地「28」，符合实际业务流程——
-// 大多数行程都是从 28 出发、最后回到 28，中间才是客人真正的地址。
+// 去程起点 / 回程终点默认都是公司基地「28」，符合实际业务流程——大多数行程都是从 28
+// 出发、最后回到 28，中间才是客人真正的地址。
 function defaultLegs(): FormLeg[] {
   return [
     { legType: "OUTBOUND", pickupLocation: "28" },
@@ -95,15 +96,21 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
   const [pasteText, setPasteText] = useState("");
   const navigate = useNavigate();
   const createBooking = useCreateBookingMutation();
-  // Mobile UAT Round 2：Estimated Finish Time 预设自动算（Pickup Time + Duration），
-  // 但使用者直接编辑过某一个 Leg 的 Finish Time 之后，那笔就不该再被自动算的结果覆盖回去——
-  // 跟 Leg 本身「自动/手动」的精神一致。用 index 记录哪些 Leg 已经被手动改过。
+  // Estimated Finish Time 预设自动算（Pickup Time + Duration），但使用者直接编辑过某一个
+  // Leg 的 Finish Time 之后，那笔就不该再被自动算的结果覆盖回去。
   const manualFinishLegIndexes = useRef<Set<number>>(new Set());
+  // Mobile UAT Round 3：回程 Pickup Date/Time 预设 = 去程 Pickup + Duration 自动算好，
+  // Admin 手动改过回程时间之后就不再被覆盖，除非去程时间/时长在那之前又变动。
+  const manualReturnScheduleLegIndexes = useRef<Set<number>>(new Set());
+  // 回程起点预设 = 去程终点，同样道理：手动改过就不再被自动同步覆盖。
+  const manualReturnPickupLegIndexes = useRef<Set<number>>(new Set());
 
   function handleClose() {
     form.resetFields();
     setPasteText("");
     manualFinishLegIndexes.current.clear();
+    manualReturnScheduleLegIndexes.current.clear();
+    manualReturnPickupLegIndexes.current.clear();
     onClose();
   }
 
@@ -113,24 +120,65 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
 
     changedLegs.forEach((changedLeg, index) => {
       if (!changedLeg) return;
+      const legType = allValues.legs?.[index]?.legType;
 
       if ("estimatedFinishDate" in changedLeg || "estimatedFinishTime" in changedLeg) {
         manualFinishLegIndexes.current.add(index);
-        return;
+      } else {
+        const touchesRelevantField =
+          "scheduledDate" in changedLeg || "scheduledTime" in changedLeg || "estimatedDurationMinutes" in changedLeg;
+        if (touchesRelevantField && !manualFinishLegIndexes.current.has(index)) {
+          const leg = allValues.legs?.[index];
+          if (leg) {
+            const scheduledAt = combineDateTime(leg.scheduledDate, leg.scheduledTime);
+            const finish = calculateEstimatedFinish(scheduledAt, leg.estimatedDurationMinutes);
+            form.setFields([
+              { name: ["legs", index, "estimatedFinishDate"], value: finish },
+              { name: ["legs", index, "estimatedFinishTime"], value: finish }
+            ]);
+          }
+        }
       }
 
-      const touchesRelevantField =
-        "scheduledDate" in changedLeg || "scheduledTime" in changedLeg || "estimatedDurationMinutes" in changedLeg;
-      if (!touchesRelevantField || manualFinishLegIndexes.current.has(index)) return;
+      // 使用者直接改回程自己的 Pickup Date/Time -> 记成手动，之后去程再怎么变都不会覆盖它。
+      if (legType === "RETURN" && ("scheduledDate" in changedLeg || "scheduledTime" in changedLeg)) {
+        manualReturnScheduleLegIndexes.current.add(index);
+      }
+      // 使用者直接改回程自己的起点 -> 记成手动，不再跟去程终点同步。
+      if (legType === "RETURN" && "pickupLocation" in changedLeg) {
+        manualReturnPickupLegIndexes.current.add(index);
+      }
 
-      const leg = allValues.legs?.[index];
-      if (!leg) return;
-      const scheduledAt = combineDateTime(leg.scheduledDate, leg.scheduledTime);
-      const finish = calculateEstimatedFinish(scheduledAt, leg.estimatedDurationMinutes);
-      form.setFields([
-        { name: ["legs", index, "estimatedFinishDate"], value: finish },
-        { name: ["legs", index, "estimatedFinishTime"], value: finish }
-      ]);
+      // 去程的 Pickup Date/Time/Duration 变了 -> 重新算出「该回去接的时间」，同步进所有
+      // 还没被手动改过的回程 Leg。
+      if (
+        legType === "OUTBOUND" &&
+        ("scheduledDate" in changedLeg || "scheduledTime" in changedLeg || "estimatedDurationMinutes" in changedLeg)
+      ) {
+        const outboundLeg = allValues.legs?.[index];
+        if (outboundLeg) {
+          const outboundScheduledAt = combineDateTime(outboundLeg.scheduledDate, outboundLeg.scheduledTime);
+          const returnPickup = calculateEstimatedFinish(outboundScheduledAt, outboundLeg.estimatedDurationMinutes);
+          allValues.legs?.forEach((otherLeg, otherIndex) => {
+            if (otherLeg.legType === "RETURN" && !manualReturnScheduleLegIndexes.current.has(otherIndex)) {
+              form.setFields([
+                { name: ["legs", otherIndex, "scheduledDate"], value: returnPickup },
+                { name: ["legs", otherIndex, "scheduledTime"], value: returnPickup }
+              ]);
+            }
+          });
+        }
+      }
+
+      // 去程终点变了 -> 同步进所有还没被手动改过的回程 Leg 的起点。
+      if (legType === "OUTBOUND" && "dropoffLocation" in changedLeg) {
+        const outboundLeg = allValues.legs?.[index];
+        allValues.legs?.forEach((otherLeg, otherIndex) => {
+          if (otherLeg.legType === "RETURN" && !manualReturnPickupLegIndexes.current.has(otherIndex)) {
+            form.setFields([{ name: ["legs", otherIndex, "pickupLocation"], value: outboundLeg?.dropoffLocation }]);
+          }
+        });
+      }
     });
   }
 
@@ -147,19 +195,36 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
     }
 
     manualFinishLegIndexes.current.clear();
+    manualReturnScheduleLegIndexes.current.clear();
+    manualReturnPickupLegIndexes.current.clear();
+
+    const parsedLegs = parsed.legs ?? [];
+    const outboundParsed = parsedLegs[0];
+    const outboundFinish = calculateEstimatedFinish(outboundParsed?.scheduledAt, outboundParsed?.estimatedDurationMinutes);
 
     form.setFieldsValue({
       girlName: parsed.girlName,
       totalAmount: parsed.totalAmountCents !== undefined ? parsed.totalAmountCents / 100 : undefined,
       notes: parsed.notes,
-      legs: parsed.legs?.map((leg, index) => {
+      legs: parsedLegs.map((leg, index) => {
         const legType: LegType = index === 0 ? "OUTBOUND" : index === 1 ? "RETURN" : "ADDITIONAL";
+
+        if (legType === "RETURN") {
+          return {
+            legType,
+            // 识别到地址就覆盖默认值；没识别到就用去程终点，去程也没有的话保留「28」。
+            pickupLocation: leg.pickupLocation ?? outboundParsed?.dropoffLocation ?? "28",
+            dropoffLocation: leg.dropoffLocation ?? "28",
+            scheduledDate: outboundFinish,
+            scheduledTime: outboundFinish
+          };
+        }
+
         const finish = calculateEstimatedFinish(leg.scheduledAt, leg.estimatedDurationMinutes);
         return {
           legType,
-          // 识别到地址就覆盖默认值；没识别到就保留「28」这个基地默认值，不要被清空。
           pickupLocation: leg.pickupLocation ?? (legType === "OUTBOUND" ? "28" : undefined),
-          dropoffLocation: leg.dropoffLocation ?? (legType === "RETURN" ? "28" : undefined),
+          dropoffLocation: leg.dropoffLocation,
           scheduledDate: leg.scheduledAt,
           scheduledTime: leg.scheduledAt,
           estimatedDurationMinutes: leg.estimatedDurationMinutes,
@@ -195,10 +260,10 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
           pickupLocation: leg.pickupLocation || undefined,
           dropoffLocation: leg.dropoffLocation || undefined,
           scheduledAt: combineScheduledAt(leg),
-          estimatedDurationMinutes: leg.estimatedDurationMinutes,
-          estimatedFinishAt: combineEstimatedFinishAt(leg)
+          estimatedDurationMinutes: leg.legType === "RETURN" ? undefined : leg.estimatedDurationMinutes,
+          estimatedFinishAt: leg.legType === "RETURN" ? undefined : combineEstimatedFinishAt(leg)
           // Driver Income 不在这里手动填——Booking 建立之后由后端依 Driver Pool
-          // 自动平分给每个 Leg（Mobile UAT Round 2）。
+          // 自动平分给每个 Leg。
         }))
       };
 
@@ -252,7 +317,7 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
           items={[
             {
               key: "commission",
-              label: "抽成设定（不填就用公司默认值）",
+              label: "抽成设定",
               children: (
                 <Space wrap>
                   <Form.Item name="commissionType" label="Commission Type" style={{ marginBottom: 0 }}>
@@ -270,10 +335,9 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
         <Form.List name="legs">
           {(fields, { add, remove }) => (
             <>
-              <div style={{ marginBottom: 8, fontWeight: 500 }}>
-                行程 Leg（默认已建立去程/回程，几点载去、几点载回是核心业务资料，可以删除或再新增。
-                司机收入会在建立后依 Driver Pool 自动平分，不需要在这里填）
-              </div>
+              <Typography.Text strong style={{ display: "block", marginBottom: 8 }}>
+                行程
+              </Typography.Text>
               {fields.map(({ key, name, ...rest }) => (
                 <Card
                   key={key}
@@ -311,32 +375,40 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
                         <Checkbox>时间未定</Checkbox>
                       </Form.Item>
                     </Space>
-                    <Space wrap style={{ width: "100%" }} align="start">
-                      <Form.Item
-                        {...rest}
-                        name={[name, "estimatedDurationMinutes"]}
-                        label="Estimated Duration (分钟)"
-                        style={{ marginBottom: 0 }}
-                      >
-                        <InputNumber placeholder="可留空" min={1} step={1} style={{ width: 160 }} />
-                      </Form.Item>
-                      <Form.Item
-                        {...rest}
-                        name={[name, "estimatedFinishDate"]}
-                        label="Estimated Finish Date"
-                        style={{ marginBottom: 0 }}
-                      >
-                        <DatePicker placeholder="自动算好，可手动改" style={{ width: 180 }} />
-                      </Form.Item>
-                      <Form.Item
-                        {...rest}
-                        name={[name, "estimatedFinishTime"]}
-                        label="Estimated Finish Time"
-                        style={{ marginBottom: 0 }}
-                      >
-                        <TimePicker format="HH:mm" placeholder="自动算好，可手动改" style={{ width: 120 }} />
-                      </Form.Item>
-                    </Space>
+                    {/* Mobile UAT Round 3：Estimated Duration/Finish 只有非回程的 Leg 才需要——
+                        回程的接送时间是从去程算出来的，不需要自己的时长/结束时间。 */}
+                    <Form.Item noStyle shouldUpdate={(prev, cur) => prev.legs?.[name]?.legType !== cur.legs?.[name]?.legType}>
+                      {() =>
+                        form.getFieldValue(["legs", name, "legType"]) === "RETURN" ? null : (
+                          <Space wrap style={{ width: "100%" }} align="start">
+                            <Form.Item
+                              {...rest}
+                              name={[name, "estimatedDurationMinutes"]}
+                              label="Estimated Duration (分钟)"
+                              style={{ marginBottom: 0 }}
+                            >
+                              <InputNumber placeholder="可留空" min={1} step={1} style={{ width: 160 }} />
+                            </Form.Item>
+                            <Form.Item
+                              {...rest}
+                              name={[name, "estimatedFinishDate"]}
+                              label="Estimated Finish Date"
+                              style={{ marginBottom: 0 }}
+                            >
+                              <DatePicker placeholder="自动算好，可手动改" style={{ width: 180 }} />
+                            </Form.Item>
+                            <Form.Item
+                              {...rest}
+                              name={[name, "estimatedFinishTime"]}
+                              label="Estimated Finish Time"
+                              style={{ marginBottom: 0 }}
+                            >
+                              <TimePicker format="HH:mm" placeholder="自动算好，可手动改" style={{ width: 120 }} />
+                            </Form.Item>
+                          </Space>
+                        )
+                      }
+                    </Form.Item>
                   </Space>
                 </Card>
               ))}

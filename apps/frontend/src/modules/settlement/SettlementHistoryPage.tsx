@@ -6,6 +6,10 @@ import { useSettlementsQuery } from "./hooks";
 import { VoidSettlementModal } from "./components/VoidSettlementModal";
 import { CreateAdjustmentModal } from "../wallet/components/CreateAdjustmentModal";
 import { formatCents } from "../../lib/money";
+import { formatDateSafe, formatDateTimeSafe } from "../../lib/formatDate";
+import { useIsMobile } from "../../common/useIsMobile";
+import { MobileCardList } from "../../common/MobileCardList";
+import { ResponsiveFilterBar } from "../../common/ResponsiveFilterBar";
 import type { Settlement, SettlementStatus } from "./types";
 import { PermissionGate } from "../auth/PermissionGate";
 import { PERMISSIONS } from "../../common/permissions";
@@ -22,6 +26,7 @@ export function SettlementHistoryPage() {
   const [voidingId, setVoidingId] = useState<number | null>(null);
   const [adjustingSettlement, setAdjustingSettlement] = useState<Settlement | null>(null);
   const pageSize = 20;
+  const isMobile = useIsMobile();
 
   const { data: drivers } = useDriversQuery();
   const { data, isLoading } = useSettlementsQuery({ driverId, page, pageSize });
@@ -31,8 +36,7 @@ export function SettlementHistoryPage() {
     { title: "Driver", render: (_, record) => record.driver.name },
     {
       title: "Period",
-      render: (_, record) =>
-        `${new Date(record.periodStart).toLocaleDateString()} ~ ${new Date(record.periodEnd).toLocaleDateString()}`
+      render: (_, record) => `${formatDateSafe(record.periodStart)} ~ ${formatDateSafe(record.periodEnd)}`
     },
     { title: "Wallet (Earnings)", dataIndex: "walletAmountCents", render: (v: number) => formatCents(v) },
     { title: "Collection", dataIndex: "collectionAmountCents", render: (v: number) => formatCents(v) },
@@ -48,7 +52,7 @@ export function SettlementHistoryPage() {
       dataIndex: "status",
       render: (v: SettlementStatus) => <Tag color={STATUS_COLOR[v]}>{v}</Tag>
     },
-    { title: "Created At", dataIndex: "createdAt", render: (v: string) => new Date(v).toLocaleString() },
+    { title: "Created At", dataIndex: "createdAt", render: (v: string | null) => formatDateTimeSafe(v) },
     {
       title: "操作",
       render: (_, record) => (
@@ -63,14 +67,14 @@ export function SettlementHistoryPage() {
   ];
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: isMobile ? 12 : 24 }}>
       <Typography.Title level={4}>Settlement History</Typography.Title>
 
-      <Space style={{ marginBottom: 16 }}>
+      <ResponsiveFilterBar>
         <Select
           allowClear
           placeholder="筛选 Driver"
-          style={{ width: 200 }}
+          style={{ width: isMobile ? "100%" : 200 }}
           options={drivers?.map((driver) => ({ label: driver.name, value: driver.id }))}
           value={driverId}
           onChange={(value) => {
@@ -78,15 +82,26 @@ export function SettlementHistoryPage() {
             setPage(1);
           }}
         />
-      </Space>
+      </ResponsiveFilterBar>
 
-      <Table
-        rowKey="id"
-        loading={isLoading}
-        dataSource={data?.data}
-        columns={columns}
-        pagination={{ current: page, pageSize, total: data?.total ?? 0, onChange: setPage }}
-      />
+      {isMobile ? (
+        <MobileCardList
+          rowKey="id"
+          loading={isLoading}
+          dataSource={data?.data}
+          columns={columns}
+          pagination={{ current: page, pageSize, total: data?.total ?? 0, onChange: setPage }}
+          emptyText="没有结算纪录"
+        />
+      ) : (
+        <Table
+          rowKey="id"
+          loading={isLoading}
+          dataSource={data?.data}
+          columns={columns}
+          pagination={{ current: page, pageSize, total: data?.total ?? 0, onChange: setPage }}
+        />
+      )}
 
       <VoidSettlementModal settlementId={voidingId} onClose={() => setVoidingId(null)} />
       <CreateAdjustmentModal

@@ -121,4 +121,99 @@ describe("CreateBookingModal（手机建单成功，对应 Booking 手机要求�
     expect(finishAt.getHours()).toBe(23);
     expect(finishAt.getMinutes()).toBe(59);
   });
+
+  it("Mobile UAT Round 3：移除长说明文字，只保留简短标题", async () => {
+    renderWithProviders(<CreateBookingModal open onClose={() => {}} />, { route: "/" });
+
+    expect(screen.getByText("抽成设定")).toBeInTheDocument();
+    expect(screen.getByText("行程")).toBeInTheDocument();
+    expect(screen.queryByText(/不填就用公司默认值/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/默认已建立去程\/回程/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/司机收入会在建立后依 Driver Pool 自动平分/)).not.toBeInTheDocument();
+  });
+
+  it("Mobile UAT Round 3：回程 Leg 不显示 Estimated Duration / Finish Date / Finish Time 栏位", () => {
+    renderWithProviders(<CreateBookingModal open onClose={() => {}} />, { route: "/" });
+
+    // 只有去程会显示这三个栏位，回程完全不该出现。
+    expect(screen.getAllByLabelText("Estimated Duration (分钟)")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Estimated Finish Date")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Estimated Finish Time")).toHaveLength(1);
+  });
+
+  it("Mobile UAT Round 3：回程 Pickup Date/Time 依「去程 Pickup + Duration」自动算，正确跨午夜进位", async () => {
+    vi.mocked(http.post).mockResolvedValueOnce({ id: 47, girlName: "Return Auto Calc" });
+    renderWithProviders(<CreateBookingModal open onClose={() => {}} />, { route: "/" });
+
+    await userEvent.type(screen.getByLabelText("Girl 姓名"), "Return Auto Calc");
+
+    const pickupDateInputs = screen.getAllByPlaceholderText("选择日期");
+    await userEvent.type(pickupDateInputs[0], "2026-07-26{Enter}");
+    const pickupTimeInputs = screen.getAllByPlaceholderText("选择时间");
+    await userEvent.type(pickupTimeInputs[0], "22:00{Enter}");
+
+    const durationInput = screen.getByLabelText("Estimated Duration (分钟)");
+    await userEvent.type(durationInput, "540"); // 9 小时
+
+    await userEvent.click(screen.getByRole("button", { name: /建\s*立/ }));
+
+    await waitFor(() => expect(http.post).toHaveBeenCalled());
+    const [, payload] = vi.mocked(http.post).mock.calls[0];
+    const returnLeg = (payload as { legs: { legType: string; scheduledAt?: string }[] }).legs[1];
+    expect(returnLeg.legType).toBe("RETURN");
+    const returnAt = new Date(returnLeg.scheduledAt!);
+    // 26/07 22:00 + 9 小时 = 27/07 07:00——正确跨了午夜进位到隔天。
+    expect(returnAt.getDate()).toBe(27);
+    expect(returnAt.getHours()).toBe(7);
+    expect(returnAt.getMinutes()).toBe(0);
+  });
+
+  it("Mobile UAT Round 3：手动改过回程 Pickup Time 之后，去程时间再变也不会覆盖回去", async () => {
+    vi.mocked(http.post).mockResolvedValueOnce({ id: 48, girlName: "Return Manual Override" });
+    renderWithProviders(<CreateBookingModal open onClose={() => {}} />, { route: "/" });
+
+    await userEvent.type(screen.getByLabelText("Girl 姓名"), "Return Manual Override");
+
+    const pickupDateInputs = screen.getAllByPlaceholderText("选择日期");
+    await userEvent.type(pickupDateInputs[0], "2026-07-26{Enter}");
+    const pickupTimeInputs = screen.getAllByPlaceholderText("选择时间");
+    await userEvent.type(pickupTimeInputs[0], "22:00{Enter}");
+
+    const durationInput = screen.getByLabelText("Estimated Duration (分钟)");
+    await userEvent.type(durationInput, "540");
+
+    // 手动把回程 Pickup Time 改成 09:30（这个栏位已经被自动算过一次，要先清空再输入）。
+    await userEvent.clear(pickupTimeInputs[1]);
+    await userEvent.type(pickupTimeInputs[1], "09:30{Enter}");
+
+    // 去程时间再变一次，回程手动设定的时间不该被覆盖。
+    await userEvent.clear(durationInput);
+    await userEvent.type(durationInput, "600");
+
+    await userEvent.click(screen.getByRole("button", { name: /建\s*立/ }));
+
+    await waitFor(() => expect(http.post).toHaveBeenCalled());
+    const [, payload] = vi.mocked(http.post).mock.calls[0];
+    const returnLeg = (payload as { legs: { legType: string; scheduledAt?: string }[] }).legs[1];
+    const returnAt = new Date(returnLeg.scheduledAt!);
+    expect(returnAt.getHours()).toBe(9);
+    expect(returnAt.getMinutes()).toBe(30);
+  });
+
+  it("Mobile UAT Round 3：回程起点默认同步去程终点（手动输入，不透过 OCR）", async () => {
+    vi.mocked(http.post).mockResolvedValueOnce({ id: 49, girlName: "Return Pickup Sync" });
+    renderWithProviders(<CreateBookingModal open onClose={() => {}} />, { route: "/" });
+
+    await userEvent.type(screen.getByLabelText("Girl 姓名"), "Return Pickup Sync");
+
+    const dropoffInputs = screen.getAllByLabelText("下车地点");
+    await userEvent.type(dropoffInputs[0], "Element by marriot");
+
+    await userEvent.click(screen.getByRole("button", { name: /建\s*立/ }));
+
+    await waitFor(() => expect(http.post).toHaveBeenCalled());
+    const [, payload] = vi.mocked(http.post).mock.calls[0];
+    const returnLeg = (payload as { legs: { legType: string; pickupLocation?: string }[] }).legs[1];
+    expect(returnLeg.pickupLocation).toBe("Element by marriot");
+  });
 });
