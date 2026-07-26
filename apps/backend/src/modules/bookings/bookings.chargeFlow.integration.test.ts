@@ -1,7 +1,13 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../../config/prisma.js";
 import * as bookingsService from "./bookings.service.js";
+import * as driverJobsService from "../driverJobs/driverJobs.service.js";
+import { ConflictError } from "../../common/errors.js";
 import type { AuditActor } from "../../common/audit.js";
+
+async function fastForwardToOnBoard(legId: number, driverId: number) {
+  await prisma.leg.update({ where: { id: legId }, data: { driverId, status: "PASSENGER_ON_BOARD" } });
+}
 
 /**
  * Booking Flow Migration：Booking Total 不再是直接写入的栏位，而是由 Booking Charges
@@ -17,13 +23,17 @@ beforeAll(async () => {
 });
 
 let bookingIds: number[] = [];
+let driverIds: number[] = [];
 
 afterEach(async () => {
   await prisma.walletTransaction.deleteMany({ where: { bookingId: { in: bookingIds } } });
+  await prisma.revenueSharingSnapshot.deleteMany({ where: { bookingId: { in: bookingIds } } });
   await prisma.bookingCharge.deleteMany({ where: { bookingId: { in: bookingIds }, adjustmentType: { not: "NONE" } } });
   await prisma.bookingCharge.deleteMany({ where: { bookingId: { in: bookingIds } } });
   await prisma.leg.deleteMany({ where: { bookingId: { in: bookingIds } } });
   await prisma.booking.deleteMany({ where: { id: { in: bookingIds } } });
+  await prisma.driver.deleteMany({ where: { id: { in: driverIds } } });
+  driverIds = [];
   bookingIds = [];
 });
 
@@ -176,6 +186,30 @@ describe("cancelBooking — 同步 Financial Status", () => {
     const charge = await prisma.bookingCharge.findFirstOrThrow({ where: { bookingId: booking.id } });
     expect(charge.adjustmentType).toBe("NONE");
     expect(charge.amountCents).toBe(9000);
+  });
+
+  it("Bug Fix（UAT 稳定化）：已经有 Wallet Transaction（Driver 已经拿到收入）的 Booking 不能直接取消", async () => {
+    const driver = await prisma.driver.create({ data: { name: "Cancel Guard Driver" } });
+    driverIds.push(driver.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "ChargeFlowCancelGuard",
+        totalAmountCents: 9000,
+        legs: [{ pickupLocation: "A", dropoffLocation: "B", driverId: driver.id }]
+      },
+      systemActor
+    );
+    bookingIds.push(booking.id);
+    const [leg] = booking.legs;
+
+    await fastForwardToOnBoard(leg.id, driver.id);
+    await driverJobsService.completeLeg(driver.id, leg.id, systemActor);
+
+    await expect(bookingsService.cancelBooking(booking.id)).rejects.toThrow(ConflictError);
+
+    const reloaded = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
+    expect(reloaded.status).not.toBe("CANCELLED");
   });
 });
 

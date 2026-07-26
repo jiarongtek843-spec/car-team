@@ -5,6 +5,7 @@ import { deriveBookingStatus } from "./bookings.status.js";
 import { calculateCommissionSplit } from "./commission.js";
 import { getAllocatedSumCents, hasEarningHistory } from "./allocation.js";
 import { getCompanySettings } from "../companySettings/companySettings.service.js";
+import { assertDriverAssignable } from "./legs.service.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import {
   createBookingChargeWithClient,
@@ -113,6 +114,9 @@ export async function createBooking(input: CreateBookingInput, actor: AuditActor
   for (const leg of legs) {
     if (leg.earningAllocationCents !== undefined && leg.earningAllocationCents < 0) {
       throw new ValidationError("earningAllocationCents cannot be negative");
+    }
+    if (leg.driverId !== undefined) {
+      await assertDriverAssignable(leg.driverId);
     }
   }
   if (sumAllocations(legs) > driverPoolAmountCents) {
@@ -240,6 +244,7 @@ export async function updateBooking(id: number, input: UpdateBookingInput, actor
 
   let auditSnapshot: { before: unknown; after: unknown } | undefined;
   let totalAmountCents = booking.totalAmountCents;
+  let driverPoolAmountCentsForCheck = booking.driverPoolAmountCents;
 
   if (touchesCommission) {
     if (await hasEarningHistory(id)) {
@@ -258,14 +263,7 @@ export async function updateBooking(id: number, input: UpdateBookingInput, actor
       commissionValue
     );
 
-    const allocatedSum = await getAllocatedSumCents(id);
-    if (allocatedSum > driverPoolAmountCents) {
-      throw new ValidationError(
-        `Existing leg allocations (RM${(allocatedSum / 100).toFixed(2)}) exceed the new driver pool (RM${(
-          driverPoolAmountCents / 100
-        ).toFixed(2)})`
-      );
-    }
+    driverPoolAmountCentsForCheck = driverPoolAmountCents;
 
     data.platformCommissionType = commissionType;
     data.platformCommissionValue = commissionValue;
@@ -291,6 +289,21 @@ export async function updateBooking(id: number, input: UpdateBookingInput, actor
   }
 
   await prisma.$transaction(async (tx) => {
+    if (touchesCommission) {
+      // Bug Fix（UAT 稳定化阶段）：先锁住 Booking row 再读「目前已分配总额」，避免这个检查
+      // 跟 legs.service.ts 的 assertAllocationFits 或另一个几乎同时的 updateBooking 各自
+      // 读到「超额之前」的总和一起通过检查——统一用同一套 SELECT ... FOR UPDATE 手法。
+      await tx.$queryRaw`SELECT id FROM "bookings" WHERE id = ${id} FOR UPDATE`;
+      const allocatedSum = await getAllocatedSumCents(tx, id);
+      if (allocatedSum > driverPoolAmountCentsForCheck) {
+        throw new ValidationError(
+          `Existing leg allocations (RM${(allocatedSum / 100).toFixed(2)}) exceed the new driver pool (RM${(
+            driverPoolAmountCentsForCheck / 100
+          ).toFixed(2)})`
+        );
+      }
+    }
+
     await tx.booking.update({ where: { id }, data, include: bookingDetailInclude });
 
     if (touchesCommission && totalAmountCents !== booking.totalAmountCents) {
@@ -312,8 +325,22 @@ export async function updateBooking(id: number, input: UpdateBookingInput, actor
   return getBookingById(id);
 }
 
+/**
+ * Bug Fix（UAT 稳定化阶段）：之前不管这个 Booking 是不是已经有 Leg 完成、Driver 已经拿到
+ * LEG_EARNING/REVENUE_SHARE_PAYOUT，都能直接取消并把 financialStatus 打成 VOIDED——钱已经
+ * 付出去了，但 Booking 变成作废状态，帐对不上。这里先挡掉「已经产生过 Wallet Transaction」
+ * 的 Booking，需要取消要先用 Manual Adjustment 反冲收入，跟 Collection/Settlement 已经在用
+ * 的「先挡掉、需要就走 Adjustment」是同一套模式，不在这里自动做反向纪录。
+ */
 export async function cancelBooking(id: number) {
   await getBookingById(id);
+
+  const hasWalletTransaction = await prisma.walletTransaction.findFirst({ where: { bookingId: id } });
+  if (hasWalletTransaction) {
+    throw new ConflictError(
+      "This booking already has wallet transactions (driver earnings have been paid out); it can no longer be cancelled directly. Reverse the payout via a manual adjustment first."
+    );
+  }
 
   await prisma.$transaction([
     prisma.leg.updateMany({

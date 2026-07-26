@@ -2,6 +2,7 @@ import type { LegStatus, Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { UNFINISHED_LEG_STATUSES } from "../bookings/bookings.status.js";
 import { computePresenceStatus, getPresenceThresholds, type DriverPresenceStatus } from "../gps/gps.service.js";
+import { parseLocalDateOnly, startOfLocalDay } from "../../common/date.js";
 
 /**
  * Dispatch Center 是纯读取的聚合画面，直接组合既有 Module 的资料（Booking/Leg、Driver、
@@ -26,10 +27,6 @@ const DISPATCH_VISIBLE_STATUSES: LegStatus[] = [
   "DRIVER_ARRIVING",
   "PASSENGER_ON_BOARD"
 ];
-
-function startOfLocalDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
 
 function localDayRange(date: Date) {
   const start = startOfLocalDay(date);
@@ -88,7 +85,12 @@ export async function listWaitingBookings({ filter, search, date }: ListWaitingB
           ]
         }
       : undefined,
-    ...(filter === "COMPLETED" ? { completedAt: localDayRange(date ? new Date(date) : new Date()) } : {})
+    // Bug Fix（UAT 稳定化阶段）：`date` 是 "YYYY-MM-DD" 字串，直接丢给 `new Date(date)`
+    // 会被当成 UTC 午夜解析，再用 localDayRange 的本地时区运算，会跟 settlement.service.ts
+    // 已经修过的「UTC 解析 + 本地时区运算混用」是同一个坑——伺服器时区不是 UTC 时，
+    // 「今天完成的」筛选可能会跟真正的本地日历日期差一天。改用 parseLocalDateOnly 直接照
+    // Y/M/D 数字组本地时间的 Date，不经过 UTC 解析。
+    ...(filter === "COMPLETED" ? { completedAt: localDayRange(date ? parseLocalDateOnly(date) : new Date()) } : {})
   };
 
   const legs = await prisma.leg.findMany({

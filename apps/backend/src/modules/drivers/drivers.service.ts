@@ -2,7 +2,7 @@ import type { DriverStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { hashPassword } from "../../common/password.js";
-import { ConflictError, NotFoundError } from "../../common/errors.js";
+import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { UNFINISHED_LEG_STATUSES } from "../bookings/bookings.status.js";
 import { ROLE_KEYS } from "../../common/permissions.js";
 
@@ -43,7 +43,20 @@ interface CreateDriverInput {
   password?: string;
 }
 
+/**
+ * Bug Fix（UAT 稳定化阶段）：username/password 之前只有「两个都填」才会建立登入帐号，
+ * 「只填一个」会被静默忽略（既不建帐号也不报错），呼叫端毫无线索。改成「两个都填」建立
+ * 帐号、「两个都不填」是合法的纯 Driver 资料（不建帐号），只有「只填一个」才是错误输入。
+ */
+function assertUsernamePasswordPairing(username?: string, password?: string) {
+  if (Boolean(username) !== Boolean(password)) {
+    throw new ValidationError("username and password must both be provided together, or both omitted");
+  }
+}
+
 export async function createDriver(input: CreateDriverInput) {
+  assertUsernamePasswordPairing(input.username, input.password);
+
   try {
     return await prisma.$transaction(async (tx) => {
       let userId: number | undefined;

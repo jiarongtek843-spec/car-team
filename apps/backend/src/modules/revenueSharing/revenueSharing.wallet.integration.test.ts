@@ -4,7 +4,8 @@ import * as bookingsService from "../bookings/bookings.service.js";
 import * as driverJobsService from "../driverJobs/driverJobs.service.js";
 import * as companySettingsService from "../companySettings/companySettings.service.js";
 import * as revenueSharingService from "./revenueSharing.service.js";
-import { ForbiddenError, NotFoundError, ValidationError } from "../../common/errors.js";
+import * as legsService from "../bookings/legs.service.js";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../common/errors.js";
 import type { AuditActor } from "../../common/audit.js";
 
 /**
@@ -252,6 +253,42 @@ describe("Leg 完成自动触发 Revenue Sharing Payout（V2，取代手动 Fina
     // 只有一次 Snapshot——第二条 Leg 完成时重用了第一条 Leg 完成当下建立的那一笔。
     const snapshotCount = await prisma.revenueSharingSnapshot.count({ where: { bookingId: booking.id } });
     expect(snapshotCount).toBe(1);
+  });
+
+  it("Bug Fix（UAT 稳定化）：Booking 已经 Finalize 之后不能再 addLeg/cancelLeg/deleteLeg，避免分润权重被事后改变造成超付/少付", async () => {
+    const driverA = await createTestDriver("Finalized No Add Leg A");
+    driverIds.push(driverA.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "FinalizedNoAddLeg",
+        totalAmountCents: 10000,
+        legs: [{ pickupLocation: "A", dropoffLocation: "B", driverId: driverA.id }]
+      },
+      ownerActor
+    );
+    bookingIds.push(booking.id);
+    const [legA] = booking.legs;
+
+    // 第一个 Leg 完成 → 自动 Finalize，driverPoolCents 全部分给这一个合格 Leg。
+    await fastForwardToOnBoard(legA.id, driverA.id);
+    await driverJobsService.completeLeg(driverA.id, legA.id, ownerActor);
+
+    const reloadedBooking = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
+    expect(reloadedBooking.financialStatus).toBe("FINALIZED");
+
+    // 事后想追加一条 Leg（会改变分润权重的合格集合）必须被挡下来。
+    await expect(legsService.addLeg(booking.id, { pickupLocation: "C", dropoffLocation: "D" })).rejects.toThrow(
+      ConflictError
+    );
+
+    // 直接对 DB 塞一条 PENDING Leg（模拟 Finalize 之前就存在、还没被指派司机的 Leg），
+    // 确认 cancelLeg/deleteLeg 事后一样被挡下来——这两个操作也会改变合格 Leg 集合。
+    const extraLeg = await prisma.leg.create({
+      data: { bookingId: booking.id, sequence: 2, status: "PENDING" }
+    });
+    await expect(legsService.cancelLeg(booking.id, extraLeg.id)).rejects.toThrow(ConflictError);
+    await expect(legsService.deleteLeg(booking.id, extraLeg.id)).rejects.toThrow(ConflictError);
   });
 
   it("重复 Complete 不重复发钱（Leg 状态机挡下第二次转换，从未到达 Payout 逻辑）", async () => {

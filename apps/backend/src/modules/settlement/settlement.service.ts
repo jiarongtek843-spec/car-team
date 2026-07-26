@@ -3,6 +3,7 @@ import { prisma } from "../../config/prisma.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import { createReversalTransaction } from "../wallet/wallet.service.js";
+import { parseLocalDateOnly } from "../../common/date.js";
 import {
   getCollectionsInPeriod,
   getCollectionsOutsidePeriod,
@@ -79,19 +80,6 @@ function summarizeWallet(transactions: { transactionType: string; amountCents: n
   const walletAmountCents = completedLegEarningsCents + positiveAdjustmentsCents + negativeAdjustmentsCents;
 
   return { completedLegEarningsCents, positiveAdjustmentsCents, negativeAdjustmentsCents, walletAmountCents };
-}
-
-// "YYYY-MM-DD" 字串直接丢给 `new Date()` 会被当成 UTC 午夜解析（ISO 8601 date-only
-// 字串的规定行为），但下面接的 setHours() 是用伺服器的「本地」时区运算——伺服器时区
-// 只要不是 UTC（Railway/本地开发常见是 UTC+8），这两者混在一起会让算出来的 periodStart/
-// periodEnd 悄悄偏移几个小时，偏移方向依时区而定：可能让「明明选进这个周期的日期」的资料
-// 被排除在外（Mobile UX + Scheduling Sprint 用「自动选择全部未结算日期」测出来的），
-// 也可能让周期外的资料被误算进来。直接照 Y/M/D 数字组一个本地时间的 Date，从源头避开
-// 「UTC 解析 + 本地时区运算」这组混用陷阱，periodStart/periodEnd 才会精确对应使用者
-// 选的那个（本地）日历日期区间。
-function parseLocalDateOnly(dateStr: string): Date {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  return new Date(year, month - 1, day);
 }
 
 function parsePeriod(periodStartStr: string, periodEndStr: string) {

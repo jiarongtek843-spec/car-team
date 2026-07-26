@@ -1,6 +1,6 @@
 import type { LegStatus, Prisma, WalletTransactionStatus } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
-import { NotFoundError } from "../../common/errors.js";
+import { ConflictError, NotFoundError } from "../../common/errors.js";
 import { recalculateBookingStatus } from "../bookings/bookings.service.js";
 import { applyLegTransition } from "../bookings/legTransition.js";
 import { createLegEarning } from "../wallet/wallet.service.js";
@@ -59,12 +59,30 @@ async function getMyLegOrThrow(driverId: number, legId: number) {
   return serializeLeg(leg);
 }
 
+/**
+ * Bug Fix（UAT 稳定化阶段）：Leg 状态机之前只检查 leg 状态跟 driverId 对不对，从来不检查
+ * driver.status。Admin 可以把一个正在跑单的 Driver 设成 INACTIVE，这个 Driver 事后还是能
+ * 继续 acceptLeg/rejectLeg/markDriverArriving/markPassengerOnBoard，跟 assignDriver 已经在
+ * 挡的「不能指派已停用 Driver」规则不一致。completeLeg 刻意不挡——已经在跑的行程走到完成
+ * 不该被这个卡住，只挡后续的新接单/新状态推进类操作。
+ */
+async function assertDriverActiveForJobAction(driverId: number) {
+  const driver = await prisma.driver.findUnique({ where: { id: driverId } });
+  if (!driver) {
+    throw new NotFoundError(`Driver ${driverId} not found`);
+  }
+  if (driver.status !== "ACTIVE") {
+    throw new ConflictError("This driver account has been disabled and can no longer act on this job");
+  }
+}
+
 async function transitionAndReturn(
   driverId: number,
   legId: number,
   fromStatuses: LegStatus[],
   data: Prisma.LegUncheckedUpdateManyInput
 ) {
+  await assertDriverActiveForJobAction(driverId);
   const leg = await applyLegTransition({ legId, driverId, fromStatuses, data });
   await recalculateBookingStatus(leg.bookingId);
   return getMyLegOrThrow(driverId, legId);
