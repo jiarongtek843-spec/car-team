@@ -3,9 +3,9 @@ import { prisma } from "../../config/prisma.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { deriveBookingStatus } from "./bookings.status.js";
 import { calculateCommissionSplit } from "./commission.js";
-import { getAllocatedSumCents, hasEarningHistory } from "./allocation.js";
+import { getFrozenAllocationSumCents, hasEarningHistory, redistributeAutoAllocations } from "./allocation.js";
 import { getCompanySettings } from "../companySettings/companySettings.service.js";
-import { assertDriverAssignable } from "./legs.service.js";
+import { assertDriverAssignable, assertLegScheduleFields } from "./legs.service.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import {
   createBookingChargeWithClient,
@@ -69,6 +69,8 @@ interface CreateLegInput {
   dropoffLocation?: string;
   // undefined = 没带这个栏位；null = 明确选择「时间未定」；string = 实际时间。
   scheduledAt?: string | null;
+  estimatedDurationMinutes?: number | null;
+  estimatedFinishAt?: string | null;
   driverId?: number;
   notes?: string;
   earningAllocationCents?: number;
@@ -111,13 +113,24 @@ export async function createBooking(input: CreateBookingInput, actor: AuditActor
   );
 
   const legs = input.legs ?? [];
-  for (const leg of legs) {
+  const resolvedLegs = legs.map((leg) => ({
+    ...leg,
+    resolvedScheduledAt: leg.scheduledAt === null ? null : leg.scheduledAt ? new Date(leg.scheduledAt) : undefined,
+    resolvedEstimatedFinishAt:
+      leg.estimatedFinishAt === null ? null : leg.estimatedFinishAt ? new Date(leg.estimatedFinishAt) : undefined
+  }));
+  for (const leg of resolvedLegs) {
     if (leg.earningAllocationCents !== undefined && leg.earningAllocationCents < 0) {
       throw new ValidationError("earningAllocationCents cannot be negative");
     }
     if (leg.driverId !== undefined) {
       await assertDriverAssignable(leg.driverId);
     }
+    assertLegScheduleFields({
+      scheduledAt: leg.resolvedScheduledAt,
+      estimatedDurationMinutes: leg.estimatedDurationMinutes,
+      estimatedFinishAt: leg.resolvedEstimatedFinishAt
+    });
   }
   if (sumAllocations(legs) > driverPoolAmountCents) {
     throw new ValidationError(
@@ -138,17 +151,20 @@ export async function createBooking(input: CreateBookingInput, actor: AuditActor
         platformAmountCents,
         driverPoolAmountCents,
         financialVersion: input.financialVersion,
-        legs: legs.length
+        legs: resolvedLegs.length
           ? {
-              create: legs.map((leg, index) => ({
+              create: resolvedLegs.map((leg, index) => ({
                 sequence: index + 1,
                 legType: leg.legType,
                 pickupLocation: leg.pickupLocation,
                 dropoffLocation: leg.dropoffLocation,
-                scheduledAt: leg.scheduledAt === null ? null : leg.scheduledAt ? new Date(leg.scheduledAt) : undefined,
+                scheduledAt: leg.resolvedScheduledAt,
+                estimatedDurationMinutes: leg.estimatedDurationMinutes,
+                estimatedFinishAt: leg.resolvedEstimatedFinishAt,
                 driverId: leg.driverId,
                 notes: leg.notes,
-                earningAllocationCents: leg.earningAllocationCents
+                earningAllocationCents: leg.earningAllocationCents,
+                earningAllocationManual: leg.earningAllocationCents !== undefined
               }))
             }
           : undefined
@@ -163,6 +179,13 @@ export async function createBooking(input: CreateBookingInput, actor: AuditActor
         { bookingId: created.id, chargeTypeId: fareChargeType.id, amountCents: totalAmountCents, description: "Customer Fare" },
         actor
       );
+    }
+
+    if (resolvedLegs.length > 0) {
+      // Mobile UAT Round 2：Driver Income 预设不再要求使用者手动输入，建立时就把
+      // Driver Pool 依 Leg 数量自动平分好（有明确带 earningAllocationCents 的
+      // Leg 会被当成手动 override，冻结不参与平分）。
+      await redistributeAutoAllocations(tx, created.id);
     }
 
     return created;
@@ -294,10 +317,12 @@ export async function updateBooking(id: number, input: UpdateBookingInput, actor
       // 跟 legs.service.ts 的 assertAllocationFits 或另一个几乎同时的 updateBooking 各自
       // 读到「超额之前」的总和一起通过检查——统一用同一套 SELECT ... FOR UPDATE 手法。
       await tx.$queryRaw`SELECT id FROM "bookings" WHERE id = ${id} FOR UPDATE`;
-      const allocatedSum = await getAllocatedSumCents(tx, id);
-      if (allocatedSum > driverPoolAmountCentsForCheck) {
+      // 只比对「冻结」金额（COMPLETED 或先前手动 override 过的 Leg）——仍是自动模式的
+      // Leg 会在下面 redistributeAutoAllocations 自动缩放去配合新的 Pool，不算超额。
+      const frozenSum = await getFrozenAllocationSumCents(tx, id);
+      if (frozenSum > driverPoolAmountCentsForCheck) {
         throw new ValidationError(
-          `Existing leg allocations (RM${(allocatedSum / 100).toFixed(2)}) exceed the new driver pool (RM${(
+          `Existing leg allocations (RM${(frozenSum / 100).toFixed(2)}) exceed the new driver pool (RM${(
             driverPoolAmountCentsForCheck / 100
           ).toFixed(2)})`
         );
@@ -308,6 +333,10 @@ export async function updateBooking(id: number, input: UpdateBookingInput, actor
 
     if (touchesCommission && totalAmountCents !== booking.totalAmountCents) {
       await applyTotalAmountChange(tx, id, booking.totalAmountCents, totalAmountCents, actor);
+    }
+
+    if (touchesCommission) {
+      await redistributeAutoAllocations(tx, id);
     }
   });
 

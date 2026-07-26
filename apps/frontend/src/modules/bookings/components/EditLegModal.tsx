@@ -1,14 +1,13 @@
-import { useRef } from "react";
-import { Checkbox, DatePicker, Form, Input, InputNumber, Select, Space, TimePicker, message } from "antd";
+import { useEffect, useRef } from "react";
+import { Checkbox, DatePicker, Form, Input, InputNumber, Space, TimePicker, message } from "antd";
 import type { Dayjs } from "dayjs";
-import { useAddLegMutation } from "../hooks";
+import dayjs from "dayjs";
+import { useUpdateLegMutation } from "../hooks";
 import { calculateEstimatedFinish } from "../../../lib/schedule";
+import type { Leg } from "../../../types/booking";
 import { ResponsiveModal } from "../../../common/ResponsiveModal";
-import { LEG_TYPE_LABEL } from "./StatusTags";
-import type { LegType } from "../../../types/booking";
 
 interface FormValues {
-  legType: LegType;
   pickupLocation?: string;
   dropoffLocation?: string;
   scheduledDate?: Dayjs;
@@ -17,13 +16,7 @@ interface FormValues {
   estimatedDurationMinutes?: number;
   estimatedFinishDate?: Dayjs;
   estimatedFinishTime?: Dayjs;
-  notes?: string;
 }
-
-const LEG_TYPE_OPTIONS = (Object.keys(LEG_TYPE_LABEL) as LegType[]).map((value) => ({
-  value,
-  label: LEG_TYPE_LABEL[value]
-}));
 
 function combineDateTime(date: Dayjs | undefined, time: Dayjs | undefined): Dayjs | undefined {
   if (!date) return undefined;
@@ -41,16 +34,34 @@ function combineEstimatedFinishAt(values: FormValues): string | null | undefined
   return combined ? combined.toISOString() : undefined;
 }
 
-export function AddLegModal({ bookingId, open, onClose }: { bookingId: number; open: boolean; onClose: () => void }) {
+/**
+ * Mobile UAT Round 2：这个 Modal 之前叫「设定收入」，只能改 Driver Income——现在
+ * Driver Income 自动依 Driver Pool 平分，不该在这里手动输入。改成「Edit Leg」，
+ * 编辑 Pickup Location/Destination/Pickup Date/Time/Estimated Duration/Finish Time。
+ */
+export function EditLegModal({ bookingId, leg, onClose }: { bookingId: number; leg: Leg | null; onClose: () => void }) {
   const [form] = Form.useForm<FormValues>();
-  const addLeg = useAddLegMutation(bookingId);
-  // Mobile UAT Round 2：Estimated Finish Time 预设自动算，使用者直接编辑过之后就不再
-  // 被自动结果覆盖。
+  const updateLeg = useUpdateLegMutation(bookingId);
+  const open = leg !== null;
   const manualFinish = useRef(false);
+
+  useEffect(() => {
+    if (leg) {
+      manualFinish.current = false;
+      form.setFieldsValue({
+        pickupLocation: leg.pickupLocation ?? undefined,
+        dropoffLocation: leg.dropoffLocation ?? undefined,
+        scheduledDate: leg.scheduledAt ? dayjs(leg.scheduledAt) : undefined,
+        scheduledTime: leg.scheduledAt ? dayjs(leg.scheduledAt) : undefined,
+        estimatedDurationMinutes: leg.estimatedDurationMinutes ?? undefined,
+        estimatedFinishDate: leg.estimatedFinishAt ? dayjs(leg.estimatedFinishAt) : undefined,
+        estimatedFinishTime: leg.estimatedFinishAt ? dayjs(leg.estimatedFinishAt) : undefined
+      });
+    }
+  }, [leg, form]);
 
   function handleClose() {
     form.resetFields();
-    manualFinish.current = false;
     onClose();
   }
 
@@ -72,44 +83,39 @@ export function AddLegModal({ bookingId, open, onClose }: { bookingId: number; o
   }
 
   async function handleSubmit() {
+    if (!leg) return;
     const values = await form.validateFields();
-    await addLeg.mutateAsync({
-      legType: values.legType,
-      pickupLocation: values.pickupLocation || undefined,
-      dropoffLocation: values.dropoffLocation || undefined,
-      scheduledAt: combineScheduledAt(values),
-      estimatedDurationMinutes: values.estimatedDurationMinutes,
-      estimatedFinishAt: combineEstimatedFinishAt(values),
-      notes: values.notes || undefined
-      // Driver Income 不在这里手动填——新增 Leg 之后由后端自动重新平分 Driver Pool。
+    await updateLeg.mutateAsync({
+      legId: leg.id,
+      input: {
+        pickupLocation: values.pickupLocation || undefined,
+        dropoffLocation: values.dropoffLocation || undefined,
+        scheduledAt: combineScheduledAt(values),
+        estimatedDurationMinutes: values.estimatedDurationMinutes,
+        estimatedFinishAt: combineEstimatedFinishAt(values)
+      }
     });
-    message.success("Leg 新增成功");
+    message.success("Leg 已更新");
     handleClose();
   }
 
   return (
     <ResponsiveModal
-      title="新增 Leg"
+      title={`Edit Leg${leg ? ` — Leg ${leg.sequence}` : ""}`}
       open={open}
       onCancel={handleClose}
       onOk={handleSubmit}
-      confirmLoading={addLeg.isPending}
-      okText="新增"
+      confirmLoading={updateLeg.isPending}
+      okText="储存"
       cancelText="取消"
     >
-      <Form form={form} layout="vertical" initialValues={{ legType: "ADDITIONAL" }} onValuesChange={handleValuesChange}>
-        <Form.Item name="legType" label="行程类型">
-          <Select options={LEG_TYPE_OPTIONS} />
-        </Form.Item>
-        <Form.Item name="pickupLocation" label="起点（可留空）">
+      <Form form={form} layout="vertical" onValuesChange={handleValuesChange}>
+        <Form.Item name="pickupLocation" label="Pickup Location（可留空）">
           <Input />
         </Form.Item>
-        <Form.Item name="dropoffLocation" label="终点（可留空）">
+        <Form.Item name="dropoffLocation" label="Destination（可留空）">
           <Input />
         </Form.Item>
-        {/* 日期跟时间分开输入，才能清楚分开显示；「时间未定」让使用者明确表示这段行程
-            的时间还没确定，不是忘记填——跟单纯留空效果相同（都会显示「待确认」），
-            但意图更明确。 */}
         <Space wrap style={{ width: "100%" }} align="start">
           <Form.Item name="scheduledDate" label="Pickup Date">
             <DatePicker placeholder="选择日期" style={{ width: 160 }} />
@@ -132,9 +138,6 @@ export function AddLegModal({ bookingId, open, onClose }: { bookingId: number; o
             <TimePicker format="HH:mm" placeholder="自动算好，可手动改" style={{ width: 120 }} />
           </Form.Item>
         </Space>
-        <Form.Item name="notes" label="备注">
-          <Input.TextArea rows={2} />
-        </Form.Item>
       </Form>
     </ResponsiveModal>
   );

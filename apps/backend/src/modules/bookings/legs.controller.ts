@@ -9,12 +9,16 @@ const legTypeSchema = z.enum(["OUTBOUND", "RETURN", "ADDITIONAL"]);
 // nullable：null 代表「明确选择时间未定」，跟 undefined（表单没带这个栏位、维持原状）
 // 是两回事——省略 .nullable() 就没办法把一个已经设定过的时间改回「未定」。
 const scheduledAtSchema = z.string().datetime().nullable().optional();
+const estimatedFinishAtSchema = z.string().datetime().nullable().optional();
+const estimatedDurationMinutesSchema = z.coerce.number().int().positive().nullable().optional();
 
 const addLegSchema = z.object({
   legType: legTypeSchema.optional(),
   pickupLocation: z.string().min(1).optional(),
   dropoffLocation: z.string().min(1).optional(),
   scheduledAt: scheduledAtSchema,
+  estimatedDurationMinutes: estimatedDurationMinutesSchema,
+  estimatedFinishAt: estimatedFinishAtSchema,
   driverId: z.coerce.number().int().positive().optional(),
   notes: z.string().optional(),
   earningAllocationCents: z.coerce.number().int().nonnegative().optional()
@@ -25,6 +29,8 @@ const updateLegSchema = z.object({
   pickupLocation: z.string().min(1).optional(),
   dropoffLocation: z.string().min(1).optional(),
   scheduledAt: scheduledAtSchema,
+  estimatedDurationMinutes: estimatedDurationMinutesSchema,
+  estimatedFinishAt: estimatedFinishAtSchema,
   notes: z.string().optional(),
   earningAllocationCents: z.coerce.number().int().nonnegative().optional()
 });

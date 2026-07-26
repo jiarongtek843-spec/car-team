@@ -186,4 +186,31 @@ describe("GPS live tracking (Module 5 scenarios)", () => {
     const completed = await driverJobsService.completeLeg(driver.id, leg.id, systemActor);
     expect(completed.status).toBe("COMPLETED");
   });
+
+  it("Mobile UAT Round 2 Bug Fix：完成一趟行程之后重新上线，Presence 显示 ONLINE 而不是 COMPLETED", async () => {
+    // Driver App 右上角状态徽章之前误显示 Completed：找「这个 Driver 手上的 Leg」时用错
+    // 了包含 COMPLETED 的 ACTIVE_LEG_STATUSES（那是给 Booking Status 推导用的），导致
+    // 刚完成一趟行程、还没接到下一趟的 Driver，presence 会被这笔已经结束的 Leg 盖过去。
+    const driver = await createTestDriver("Completed Then Online Driver");
+    driverIds.push(driver.id);
+
+    const booking = await bookingsService.createBooking({
+      girlName: "CompletedThenOnline",
+      totalAmountCents: 6000,
+      legs: [{ pickupLocation: "A", dropoffLocation: "B" }]
+    });
+    bookingIds.push(booking.id);
+    const [leg] = booking.legs;
+
+    await fastForwardToOnBoard(leg.id, driver.id);
+    await driverJobsService.completeLeg(driver.id, leg.id, systemActor);
+
+    await gpsService.goOnline(driver.id, systemActor);
+    const presence = await gpsService.getDriverPresence(driver.id);
+    expect(presence.status).toBe("ONLINE");
+
+    const list = await gpsService.listDriverPresence(false);
+    const entry = list.find((p) => p.driver.id === driver.id);
+    expect(entry?.status).toBe("ONLINE");
+  });
 });

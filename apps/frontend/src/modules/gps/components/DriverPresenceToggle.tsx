@@ -130,7 +130,12 @@ export function DriverPresenceToggle({ light }: { light?: boolean } = {}) {
 
   return (
     <Space>
-      <Switch checked={isOnline} onChange={handleToggle} loading={goOnline.isPending || goOffline.isPending} />
+      <Switch
+        checked={isOnline}
+        onChange={handleToggle}
+        loading={goOnline.isPending || goOffline.isPending}
+        style={isOnline ? { backgroundColor: "#52c41a" } : undefined}
+      />
       <Typography.Text style={light ? undefined : { color: "#fff" }}>{isOnline ? "Online" : "Offline"}</Typography.Text>
     </Space>
   );

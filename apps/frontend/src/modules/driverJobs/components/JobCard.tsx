@@ -2,7 +2,7 @@ import { Button, Card, Popconfirm, Space, Tag, Typography, message } from "antd"
 import type { DriverLeg, LegWalletStatus } from "../types";
 import { useAcceptLegMutation, useCompleteLegMutation, useMarkArrivingMutation, useMarkOnBoardMutation } from "../hooks";
 import { LegTypeTag } from "../../bookings/components/StatusTags";
-import { formatLegDateTime } from "../../../lib/schedule";
+import { formatDuration, formatEstimatedFinish, formatLegDateTime } from "../../../lib/schedule";
 import { formatCents } from "../../../lib/money";
 
 const WALLET_STATUS_LABEL: Record<LegWalletStatus, string> = {
@@ -58,6 +58,9 @@ export function JobCard({ leg, onReject }: { leg: DriverLeg; onReject: (legId: n
           {leg.pickupLocation ?? "—"} → {leg.dropoffLocation ?? "—"}
         </Typography.Text>
         <Typography.Text type="secondary">预定时间：{formatLegDateTime(leg.scheduledAt)}</Typography.Text>
+        <Typography.Text type="secondary">
+          Duration：{formatDuration(leg.estimatedDurationMinutes)} · Finish：{formatEstimatedFinish(leg.estimatedFinishAt)}
+        </Typography.Text>
         {leg.notes && <Typography.Text type="secondary">备注：{leg.notes}</Typography.Text>}
         {leg.status === "REJECTED" && leg.rejectionReason && (
           <Typography.Text type="danger">拒绝原因：{leg.rejectionReason}</Typography.Text>

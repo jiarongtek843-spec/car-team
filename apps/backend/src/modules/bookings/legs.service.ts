@@ -3,7 +3,7 @@ import { prisma } from "../../config/prisma.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { recalculateBookingStatus } from "./bookings.service.js";
 import { applyLegTransition } from "./legTransition.js";
-import { getAllocatedSumCents } from "./allocation.js";
+import { getFrozenAllocationSumCents, redistributeAutoAllocations } from "./allocation.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import type { TxClient } from "../bookingCharges/bookingCharge.service.js";
 
@@ -51,12 +51,12 @@ async function assertNotFinalizedV2(booking: { financialVersion: string; financi
 }
 
 /**
- * Bug Fix（UAT 稳定化阶段）：这里读取「目前已分配总额」时之前没有上锁，跟
- * bookingCharge.service.ts 建立 Charge 时明确用 `SELECT ... FOR UPDATE` 的做法不一致——
- * 两个几乎同时的 addLeg/updateLeg 可能都读到同一份「超额之前」的总和，一起通过检查，
- * 让总分配超过 Driver Pool。呼叫端必须传入交易中的 tx client，这里先锁住 Booking row
- * 再读总额，直到交易 commit 前都不会释放锁，第二个并发呼叫会等到第一个写完才能读到
- * 最新总额。
+ * 验证一笔手动 override 的 Driver Income 金额，跟其他已经冻结（COMPLETED 或先前
+ * 手动设定过）的金额加总起来，有没有超过 Driver Pool——仍是自动模式的其他 Leg 不算
+ * 进这个总和，因为 redistributeAutoAllocations 之后会自动缩放去配合剩下的额度，
+ * 不该被当成「会超额」的一部分。这里先用 `SELECT ... FOR UPDATE` 锁住 Booking row
+ * 再读总额，直到交易 commit 前都不会释放锁，避免两个几乎同时的手动 override 各自读到
+ * 「更新之前」的总和一起通过检查。
  */
 export async function assertAllocationFits(
   client: TxClient,
@@ -70,8 +70,8 @@ export async function assertAllocationFits(
 
   await client.$queryRaw`SELECT id FROM "bookings" WHERE id = ${bookingId} FOR UPDATE`;
   const booking = await client.booking.findUniqueOrThrow({ where: { id: bookingId } });
-  const otherLegsSum = await getAllocatedSumCents(client, bookingId, excludeLegId);
-  const totalAfter = otherLegsSum + newAllocationCents;
+  const frozenSum = await getFrozenAllocationSumCents(client, bookingId, excludeLegId);
+  const totalAfter = frozenSum + newAllocationCents;
 
   if (totalAfter > booking.driverPoolAmountCents) {
     throw new ValidationError(
@@ -88,8 +88,13 @@ interface AddLegInput {
   dropoffLocation?: string;
   // undefined = 没带这个栏位；null = 明确选择「时间未定」；string = 实际时间。
   scheduledAt?: string | null;
+  estimatedDurationMinutes?: number | null;
+  estimatedFinishAt?: string | null;
   driverId?: number;
   notes?: string;
+  // Mobile UAT Round 2：正常流程不会再传这个栏位（前端已经不给手动输入），
+  // Driver Income 交给 redistributeAutoAllocations 自动算。传了才代表 Admin
+  // 明确要 override 这笔的金额，才会走「冻结成手动」的路径。
   earningAllocationCents?: number;
 }
 
@@ -97,6 +102,31 @@ function resolveScheduledAt(scheduledAt: string | null | undefined): Date | null
   if (scheduledAt === undefined) return undefined;
   if (scheduledAt === null) return null;
   return new Date(scheduledAt);
+}
+
+function resolveEstimatedFinishAt(estimatedFinishAt: string | null | undefined): Date | null | undefined {
+  if (estimatedFinishAt === undefined) return undefined;
+  if (estimatedFinishAt === null) return null;
+  return new Date(estimatedFinishAt);
+}
+
+/**
+ * Mobile UAT Round 2：Estimated Duration 若填了必须是正数；Estimated Finish Time
+ * 若跟 Pickup Time（scheduledAt）同时都有值，Finish 不能早于 Pickup——这两个栏位各自
+ * 独立存，前端会自动帮忙算好 Finish Time 填入，但这里仍然要在后端把关，避免任何
+ * 前端算错或直接打 API 的情况留下不合理的资料。
+ */
+export function assertLegScheduleFields(input: {
+  scheduledAt?: Date | null;
+  estimatedDurationMinutes?: number | null;
+  estimatedFinishAt?: Date | null;
+}) {
+  if (input.estimatedDurationMinutes !== undefined && input.estimatedDurationMinutes !== null && input.estimatedDurationMinutes <= 0) {
+    throw new ValidationError("estimatedDurationMinutes must be greater than 0");
+  }
+  if (input.scheduledAt && input.estimatedFinishAt && input.estimatedFinishAt < input.scheduledAt) {
+    throw new ValidationError("estimatedFinishAt cannot be earlier than the pickup time (scheduledAt)");
+  }
 }
 
 export async function addLeg(bookingId: number, input: AddLegInput) {
@@ -111,6 +141,14 @@ export async function addLeg(bookingId: number, input: AddLegInput) {
   if (input.driverId !== undefined) {
     await assertDriverAssignable(input.driverId);
   }
+
+  const scheduledAt = resolveScheduledAt(input.scheduledAt);
+  const estimatedFinishAt = resolveEstimatedFinishAt(input.estimatedFinishAt);
+  assertLegScheduleFields({
+    scheduledAt,
+    estimatedDurationMinutes: input.estimatedDurationMinutes,
+    estimatedFinishAt
+  });
 
   await prisma.$transaction(async (tx) => {
     if (input.earningAllocationCents !== undefined) {
@@ -129,12 +167,17 @@ export async function addLeg(bookingId: number, input: AddLegInput) {
         legType: input.legType,
         pickupLocation: input.pickupLocation,
         dropoffLocation: input.dropoffLocation,
-        scheduledAt: resolveScheduledAt(input.scheduledAt),
+        scheduledAt,
+        estimatedDurationMinutes: input.estimatedDurationMinutes,
+        estimatedFinishAt,
         driverId: input.driverId,
         notes: input.notes,
-        earningAllocationCents: input.earningAllocationCents
+        earningAllocationCents: input.earningAllocationCents,
+        earningAllocationManual: input.earningAllocationCents !== undefined
       }
     });
+
+    await redistributeAutoAllocations(tx, bookingId);
   });
 
   return recalculateBookingStatus(bookingId);
@@ -145,6 +188,8 @@ interface UpdateLegInput {
   pickupLocation?: string;
   dropoffLocation?: string;
   scheduledAt?: string | null;
+  estimatedDurationMinutes?: number | null;
+  estimatedFinishAt?: string | null;
   notes?: string;
   earningAllocationCents?: number;
 }
@@ -154,6 +199,15 @@ export async function updateLeg(bookingId: number, legId: number, input: UpdateL
   if (leg.status === "COMPLETED" || leg.status === "CANCELLED") {
     throw new ConflictError(`Leg is already ${leg.status} and cannot be edited`);
   }
+
+  const scheduledAt = resolveScheduledAt(input.scheduledAt);
+  const estimatedFinishAt = resolveEstimatedFinishAt(input.estimatedFinishAt);
+  assertLegScheduleFields({
+    scheduledAt: scheduledAt !== undefined ? scheduledAt : leg.scheduledAt,
+    estimatedDurationMinutes:
+      input.estimatedDurationMinutes !== undefined ? input.estimatedDurationMinutes : leg.estimatedDurationMinutes,
+    estimatedFinishAt: estimatedFinishAt !== undefined ? estimatedFinishAt : leg.estimatedFinishAt
+  });
 
   await prisma.$transaction(async (tx) => {
     if (input.earningAllocationCents !== undefined) {
@@ -172,11 +226,18 @@ export async function updateLeg(bookingId: number, legId: number, input: UpdateL
         legType: input.legType,
         pickupLocation: input.pickupLocation,
         dropoffLocation: input.dropoffLocation,
-        scheduledAt: resolveScheduledAt(input.scheduledAt),
+        scheduledAt,
+        estimatedDurationMinutes: input.estimatedDurationMinutes,
+        estimatedFinishAt,
         notes: input.notes,
-        earningAllocationCents: input.earningAllocationCents
+        earningAllocationCents: input.earningAllocationCents,
+        earningAllocationManual: input.earningAllocationCents !== undefined ? true : undefined
       }
     });
+
+    if (input.earningAllocationCents !== undefined) {
+      await redistributeAutoAllocations(tx, bookingId);
+    }
   });
 
   if (input.earningAllocationCents !== undefined) {
@@ -241,10 +302,15 @@ export async function cancelLeg(bookingId: number, legId: number) {
   const booking = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } });
   await assertNotFinalizedV2(booking);
 
-  await applyLegTransition({
-    legId,
-    fromStatuses: [...CANCELLABLE_STATUSES],
-    data: { status: "CANCELLED" }
+  await prisma.$transaction(async (tx) => {
+    await applyLegTransition({
+      legId,
+      fromStatuses: [...CANCELLABLE_STATUSES],
+      data: { status: "CANCELLED" },
+      client: tx
+    });
+    // Leg 数量（有效的部分）变了，剩下的自动分配 Leg 要重新平分 Driver Pool。
+    await redistributeAutoAllocations(tx, bookingId);
   });
 
   return recalculateBookingStatus(bookingId);
@@ -258,7 +324,10 @@ export async function deleteLeg(bookingId: number, legId: number) {
   const booking = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } });
   await assertNotFinalizedV2(booking);
 
-  await prisma.leg.delete({ where: { id: legId } });
+  await prisma.$transaction(async (tx) => {
+    await tx.leg.delete({ where: { id: legId } });
+    await redistributeAutoAllocations(tx, bookingId);
+  });
 
   return recalculateBookingStatus(bookingId);
 }

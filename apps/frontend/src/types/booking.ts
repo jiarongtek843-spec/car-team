@@ -35,9 +35,12 @@ export interface Leg {
   pickupLocation: string | null;
   dropoffLocation: string | null;
   scheduledAt: string | null;
+  estimatedDurationMinutes: number | null;
+  estimatedFinishAt: string | null;
   notes: string | null;
   status: LegStatus;
   earningAllocationCents: number | null;
+  earningAllocationManual: boolean;
   rejectionReason: string | null;
   assignedAt: string | null;
   acceptedAt: string | null;
@@ -79,8 +82,12 @@ export interface CreateLegInput {
   dropoffLocation?: string;
   // undefined = 没带这个栏位；null = 明确选择「时间未定」；string = 实际时间。
   scheduledAt?: string | null;
+  estimatedDurationMinutes?: number | null;
+  estimatedFinishAt?: string | null;
   driverId?: number;
   notes?: string;
+  // 正常流程不用带这个——Driver Income 现在预设自动平分 Driver Pool。带了才代表
+  // 明确要 override 这笔的金额。
   earningAllocationCents?: number;
 }
 
@@ -106,6 +113,8 @@ export interface UpdateLegInput {
   pickupLocation?: string;
   dropoffLocation?: string;
   scheduledAt?: string | null;
+  estimatedDurationMinutes?: number | null;
+  estimatedFinishAt?: string | null;
   notes?: string;
   earningAllocationCents?: number;
 }

@@ -4,6 +4,7 @@ export interface ParsedLeg {
   pickupLocation?: string;
   dropoffLocation?: string;
   scheduledAt?: Dayjs;
+  estimatedDurationMinutes?: number;
 }
 
 export interface ParsedBooking {
@@ -88,13 +89,16 @@ export function parseBookingText(text: string): ParsedBooking {
     }
   }
 
+  // "Time: 9 hrs" 是去程这趟工作预计花多久，同时兼两个用途：填进去程的 Estimated
+  // Duration 栏位让使用者核对，也用来算回程大概几点出发（Pickup Time + Duration）。
+  const estimatedDurationMinutes = durationMatch ? Math.round(Number(durationMatch[1]) * 60) : undefined;
+
   let returnAt: Dayjs | undefined;
-  if (departAt && durationMatch) {
-    const durationMinutes = Math.round(Number(durationMatch[1]) * 60);
-    returnAt = departAt.add(durationMinutes, "minute");
+  if (departAt && estimatedDurationMinutes !== undefined) {
+    returnAt = departAt.add(estimatedDurationMinutes, "minute");
   }
 
-  const leg1: ParsedLeg = { dropoffLocation: address, scheduledAt: departAt };
+  const leg1: ParsedLeg = { dropoffLocation: address, scheduledAt: departAt, estimatedDurationMinutes };
   const leg2: ParsedLeg = { pickupLocation: address, scheduledAt: returnAt };
 
   const leg1HasData = Boolean(leg1.dropoffLocation || leg1.scheduledAt);

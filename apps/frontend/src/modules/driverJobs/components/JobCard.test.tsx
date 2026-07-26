@@ -21,6 +21,8 @@ function makeLeg(overrides: Partial<DriverLeg>): DriverLeg {
     pickupLocation: "A",
     dropoffLocation: "B",
     scheduledAt: null,
+    estimatedDurationMinutes: null,
+    estimatedFinishAt: null,
     notes: null,
     status: "ASSIGNED",
     rejectionReason: null,

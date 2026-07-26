@@ -2,7 +2,7 @@ import type { LegStatus } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
-import { ACTIVE_LEG_STATUSES } from "../bookings/bookings.status.js";
+import { UNFINISHED_LEG_STATUSES } from "../bookings/bookings.status.js";
 import { getCompanySettings } from "../companySettings/companySettings.service.js";
 
 /**
@@ -281,8 +281,13 @@ export async function listDriverPresence(onlineOnly: boolean) {
     select: { ...driverSummarySelect, location: true }
   });
 
+  // Mobile UAT Round 2 Bug Fix：这里要找的是「手上还没做完的工作」，用来在 Presence
+  // 徽章上叠加显示 ACCEPTED/DRIVER_ARRIVING 等进行中状态。之前误用 ACTIVE_LEG_STATUSES
+  // （刻意包含 COMPLETED，是给 Booking Status 推导用的），导致一个 Driver 刚完成一趟
+  // 行程、还没接到下一趟时，presence 状态会被这笔「已完成」的 Leg 盖过去，明明是 Online
+  // 却显示 Completed。改用 UNFINISHED_LEG_STATUSES（不含 COMPLETED）。
   const legs = await prisma.leg.findMany({
-    where: { driverId: { in: drivers.map((d) => d.id) }, status: { in: ACTIVE_LEG_STATUSES } },
+    where: { driverId: { in: drivers.map((d) => d.id) }, status: { in: UNFINISHED_LEG_STATUSES } },
     include: { booking: { select: { girlName: true } } },
     orderBy: { updatedAt: "desc" }
   });
@@ -319,7 +324,7 @@ export async function getDriverPresence(driverId: number) {
   }
 
   const activeLeg = await prisma.leg.findFirst({
-    where: { driverId, status: { in: ACTIVE_LEG_STATUSES } },
+    where: { driverId, status: { in: UNFINISHED_LEG_STATUSES } },
     include: { booking: { select: { girlName: true } } },
     orderBy: { updatedAt: "desc" }
   });

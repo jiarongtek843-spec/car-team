@@ -407,8 +407,19 @@ model Leg {
   notes           String?
   status          LegStatus @default(PENDING)
 
-  // 这个 Leg 完成后司机应得多少钱。Admin 设定，Completed 后不可再改。
-  earningAllocationCents Int? @map("earning_allocation_cents")
+  // Mobile UAT Round 2：scheduledAt 就是 Pickup Time，这两个是额外补充的排程栏位，
+  // 各自独立存，互不派生（estimatedFinishAt 不是 scheduledAt+estimatedDurationMinutes
+  // 算出来存的，前端预设会自动算好填入，但 Admin 手动改过之后就照 Admin 填的存，
+  // 不会被后续的 Duration/Pickup Time 编辑悄悄覆盖回去）。
+  estimatedDurationMinutes Int?      @map("estimated_duration_minutes")
+  estimatedFinishAt        DateTime? @map("estimated_finish_at")
+
+  // 这个 Leg 完成后司机应得多少钱。Mobile UAT Round 2 之后预设由 Driver Pool 按未取消
+  // Leg 数量自动平分（见 legs.service.ts 的 redistributeAutoAllocations），
+  // earningAllocationManual=true 代表 Admin 明确手动改过这笔的金额，之后的自动平分
+  // 不会再动它，只会拿剩余的 Pool 在其他仍是自动模式的 Leg 之间平分。
+  earningAllocationCents  Int?    @map("earning_allocation_cents")
+  earningAllocationManual Boolean @default(false) @map("earning_allocation_manual")
 
   rejectionReason    String?   @map("rejection_reason")
   assignedAt         DateTime? @map("assigned_at")

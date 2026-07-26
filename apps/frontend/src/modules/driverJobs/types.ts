@@ -11,6 +11,8 @@ export interface DriverLeg {
   pickupLocation: string | null;
   dropoffLocation: string | null;
   scheduledAt: string | null;
+  estimatedDurationMinutes: number | null;
+  estimatedFinishAt: string | null;
   notes: string | null;
   status: LegStatus;
   rejectionReason: string | null;

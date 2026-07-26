@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "../../config/prisma.js";
 import * as bookingsService from "./bookings.service.js";
 import * as legsService from "./legs.service.js";
+import * as driverJobsService from "../driverJobs/driverJobs.service.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
 import type { AuditActor } from "../../common/audit.js";
 
@@ -103,6 +104,91 @@ describe("Bug Fix：Booking/Leg 建立时验证 driverId 存在且 ACTIVE", () =
 
     await expect(legsService.addLeg(booking.id, { pickupLocation: "A", dropoffLocation: "B", driverId: driver.id })).rejects.toThrow(
       ConflictError
+    );
+  });
+});
+
+describe("Mobile UAT Round 2：Leg Estimated Duration / Estimated Finish Time Validation", () => {
+  it("addLeg 传 estimatedDurationMinutes <= 0 会被拒绝", async () => {
+    const booking = await bookingsService.createBooking({ girlName: "DurationZero", totalAmountCents: 6000 }, systemActor);
+    bookingIds.push(booking.id);
+
+    await expect(
+      legsService.addLeg(booking.id, { pickupLocation: "A", dropoffLocation: "B", estimatedDurationMinutes: 0 })
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("addLeg 的 estimatedFinishAt 早于 scheduledAt 会被拒绝", async () => {
+    const booking = await bookingsService.createBooking({ girlName: "FinishBeforePickup", totalAmountCents: 6000 }, systemActor);
+    bookingIds.push(booking.id);
+
+    await expect(
+      legsService.addLeg(booking.id, {
+        pickupLocation: "A",
+        dropoffLocation: "B",
+        scheduledAt: "2026-08-01T09:00:00.000Z",
+        estimatedFinishAt: "2026-08-01T08:00:00.000Z"
+      })
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("addLeg 带合理的 Duration/Finish 会正确存起来", async () => {
+    const booking = await bookingsService.createBooking({ girlName: "DurationFinishHappy", totalAmountCents: 6000 }, systemActor);
+    bookingIds.push(booking.id);
+
+    const updated = await legsService.addLeg(booking.id, {
+      pickupLocation: "A",
+      dropoffLocation: "B",
+      scheduledAt: "2026-08-01T09:00:00.000Z",
+      estimatedDurationMinutes: 180,
+      estimatedFinishAt: "2026-08-01T12:00:00.000Z"
+    });
+    const leg = updated.legs.find((l) => l.pickupLocation === "A");
+    expect(leg?.estimatedDurationMinutes).toBe(180);
+    expect(leg?.estimatedFinishAt).not.toBeNull();
+  });
+
+  it("updateLeg 只改 estimatedDurationMinutes 时，仍然会拿现有的 scheduledAt/estimatedFinishAt 一起做 Validation", async () => {
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "UpdateLegDurationValidation",
+        totalAmountCents: 6000,
+        legs: [
+          {
+            pickupLocation: "A",
+            dropoffLocation: "B",
+            scheduledAt: "2026-08-01T09:00:00.000Z",
+            estimatedFinishAt: "2026-08-01T10:00:00.000Z"
+          }
+        ]
+      },
+      systemActor
+    );
+    bookingIds.push(booking.id);
+    const [leg] = booking.legs;
+
+    // 现有 Finish 是 10:00，Pickup 是 09:00；把 Duration 改多长都不该影响这个既有关系被
+    // 重新验证一次——这里改 Duration 本身合法（>0），应该成功，且不会动到 Finish 栏位。
+    await legsService.updateLeg(booking.id, leg.id, { estimatedDurationMinutes: 90 }, systemActor);
+    const reloaded = await prisma.leg.findUniqueOrThrow({ where: { id: leg.id } });
+    expect(reloaded.estimatedDurationMinutes).toBe(90);
+    expect(reloaded.estimatedFinishAt?.toISOString()).toBe(new Date("2026-08-01T10:00:00.000Z").toISOString());
+  });
+
+  it("updateLeg 想把 Duration 改成 0 会被拒绝，且不会改动任何栏位", async () => {
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "UpdateLegDurationInvalid",
+        totalAmountCents: 6000,
+        legs: [{ pickupLocation: "A", dropoffLocation: "B" }]
+      },
+      systemActor
+    );
+    bookingIds.push(booking.id);
+    const [leg] = booking.legs;
+
+    await expect(legsService.updateLeg(booking.id, leg.id, { estimatedDurationMinutes: -5 }, systemActor)).rejects.toThrow(
+      ValidationError
     );
   });
 });
@@ -232,8 +318,18 @@ describe("并发安全（UAT 稳定化）：addLeg 的分配总额检查上锁",
 
     const txA = prisma.$transaction(async (tx) => {
       await legsService.assertAllocationFits(tx, booking.id, 6000);
+      // Mobile UAT Round 2：assertAllocationFits 现在只统计「冻结」金额（COMPLETED 或
+      // earningAllocationManual=true），这里手动建立的 Leg 要明确标成 manual，才代表
+      // 这 6000 已经是「确定要用掉」的额度，不会被当成仍是自动模式、可以被平分掉的份额。
       await tx.leg.create({
-        data: { bookingId: booking.id, sequence: 1, pickupLocation: "A", dropoffLocation: "B", earningAllocationCents: 6000 }
+        data: {
+          bookingId: booking.id,
+          sequence: 1,
+          pickupLocation: "A",
+          dropoffLocation: "B",
+          earningAllocationCents: 6000,
+          earningAllocationManual: true
+        }
       });
       await tx.$executeRaw`SELECT pg_sleep(0.3)`;
     });
@@ -254,5 +350,162 @@ describe("并发安全（UAT 稳定化）：addLeg 的分配总额检查上锁",
     if (results[1].status === "rejected") {
       expect(results[1].reason).toBeInstanceOf(ValidationError);
     }
+  });
+});
+
+async function fastForwardToOnBoard(legId: number, driverId: number) {
+  await prisma.leg.update({ where: { id: legId }, data: { driverId, status: "PASSENGER_ON_BOARD" } });
+}
+
+describe("Mobile UAT Round 2：Driver Income 自动按 Leg 数量平分 Driver Pool", () => {
+  it("2 个 Leg 平分 Driver Pool（Fare 60 元 15% 抽成 -> Pool 51 元，每个 Leg 25.50 元）", async () => {
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoAllocationTwoLegs",
+        totalAmountCents: 6000,
+        commissionType: "PERCENTAGE",
+        commissionValue: 15,
+        legs: [{ pickupLocation: "28", dropoffLocation: "B" }, { pickupLocation: "B", dropoffLocation: "28" }]
+      },
+      systemActor
+    );
+    bookingIds.push(booking.id);
+
+    expect(booking.driverPoolAmountCents).toBe(5100);
+    const legs = await prisma.leg.findMany({ where: { bookingId: booking.id }, orderBy: { sequence: "asc" } });
+    expect(legs.map((leg) => leg.earningAllocationCents)).toEqual([2550, 2550]);
+    expect(legs.every((leg) => leg.earningAllocationManual === false)).toBe(true);
+  });
+
+  it("新增第 3 个 Leg 后，Driver Pool 自动在 3 个 Leg 之间重新平分", async () => {
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoAllocationRedistribute",
+        totalAmountCents: 6000,
+        commissionType: "PERCENTAGE",
+        commissionValue: 15,
+        legs: [{ pickupLocation: "28", dropoffLocation: "B" }, { pickupLocation: "B", dropoffLocation: "28" }]
+      },
+      systemActor
+    );
+    bookingIds.push(booking.id);
+
+    await legsService.addLeg(booking.id, { legType: "ADDITIONAL", pickupLocation: "28", dropoffLocation: "C" });
+
+    const legs = await prisma.leg.findMany({ where: { bookingId: booking.id }, orderBy: { sequence: "asc" } });
+    expect(legs).toHaveLength(3);
+    expect(legs.map((leg) => leg.earningAllocationCents)).toEqual([1700, 1700, 1700]);
+  });
+
+  it("手动 override 一个 Leg 后，其余 Leg 只平分剩余的 Pool，不会覆盖手动那笔", async () => {
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoAllocationManualOverride",
+        totalAmountCents: 6000,
+        commissionType: "PERCENTAGE",
+        commissionValue: 15,
+        legs: [{ pickupLocation: "28", dropoffLocation: "B" }, { pickupLocation: "B", dropoffLocation: "28" }]
+      },
+      systemActor
+    );
+    bookingIds.push(booking.id);
+    const [legA, legB] = booking.legs;
+
+    await legsService.updateLeg(booking.id, legA.id, { earningAllocationCents: 4000 }, systemActor);
+
+    const reloadedA = await prisma.leg.findUniqueOrThrow({ where: { id: legA.id } });
+    const reloadedB = await prisma.leg.findUniqueOrThrow({ where: { id: legB.id } });
+    expect(reloadedA.earningAllocationCents).toBe(4000);
+    expect(reloadedA.earningAllocationManual).toBe(true);
+    expect(reloadedB.earningAllocationCents).toBe(1100);
+    expect(reloadedB.earningAllocationManual).toBe(false);
+
+    // 手动那笔冻结之后再新增一个 Leg，只有仍是自动模式的两个 Leg 平分剩下的 1100。
+    await legsService.addLeg(booking.id, { legType: "ADDITIONAL", pickupLocation: "28", dropoffLocation: "D" });
+    const afterAdd = await prisma.leg.findMany({ where: { bookingId: booking.id }, orderBy: { sequence: "asc" } });
+    expect(afterAdd.find((leg) => leg.id === legA.id)?.earningAllocationCents).toBe(4000);
+    const autoShares = afterAdd.filter((leg) => leg.id !== legA.id).map((leg) => leg.earningAllocationCents);
+    expect(autoShares).toEqual([550, 550]);
+  });
+
+  it("已经 COMPLETED 的 Leg 收入冻结，新增 Leg 不会改动它，只影响仍在自动模式的其他 Leg", async () => {
+    const driver = await createTestDriver("Auto Allocation Frozen Driver");
+    driverIds.push(driver.id);
+
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoAllocationCompletedFrozen",
+        financialVersion: "V1",
+        totalAmountCents: 6000,
+        commissionType: "PERCENTAGE",
+        commissionValue: 15,
+        legs: [{ pickupLocation: "28", dropoffLocation: "B" }, { pickupLocation: "B", dropoffLocation: "28" }]
+      },
+      systemActor
+    );
+    bookingIds.push(booking.id);
+    const [legA, legB] = booking.legs;
+
+    await fastForwardToOnBoard(legA.id, driver.id);
+    await driverJobsService.completeLeg(driver.id, legA.id, systemActor);
+
+    const completedLeg = await prisma.leg.findUniqueOrThrow({ where: { id: legA.id } });
+    expect(completedLeg.earningAllocationCents).toBe(2550);
+
+    await legsService.addLeg(booking.id, { legType: "ADDITIONAL", pickupLocation: "28", dropoffLocation: "C" });
+
+    const reloadedCompleted = await prisma.leg.findUniqueOrThrow({ where: { id: legA.id } });
+    expect(reloadedCompleted.earningAllocationCents).toBe(2550);
+
+    const others = await prisma.leg.findMany({ where: { bookingId: booking.id, id: { not: legA.id } } });
+    // 剩下 5100-2550=2550，两个自动 Leg（原本的 legB + 新增的）各分 1275。
+    expect(others.map((leg) => leg.earningAllocationCents).sort()).toEqual([1275, 1275]);
+    void legB;
+  });
+
+  it("取消一个 Leg 之后，剩下的 Leg 重新平分 Driver Pool", async () => {
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoAllocationCancelRedistribute",
+        totalAmountCents: 6000,
+        commissionType: "PERCENTAGE",
+        commissionValue: 15,
+        legs: [
+          { pickupLocation: "28", dropoffLocation: "B" },
+          { pickupLocation: "B", dropoffLocation: "28" },
+          { legType: "ADDITIONAL", pickupLocation: "28", dropoffLocation: "C" }
+        ]
+      },
+      systemActor
+    );
+    bookingIds.push(booking.id);
+    const [, legB, legC] = booking.legs;
+
+    await legsService.cancelLeg(booking.id, legB.id);
+
+    const survivors = await prisma.leg.findMany({
+      where: { bookingId: booking.id, status: { not: "CANCELLED" } }
+    });
+    expect(survivors.map((leg) => leg.earningAllocationCents)).toEqual([2550, 2550]);
+    void legC;
+  });
+
+  it("Booking 抽成调整、Driver Pool 变大时，仍是自动模式的 Leg 会跟着重新平分", async () => {
+    const booking = await bookingsService.createBooking(
+      {
+        girlName: "AutoAllocationCommissionChange",
+        totalAmountCents: 6000,
+        commissionType: "PERCENTAGE",
+        commissionValue: 15,
+        legs: [{ pickupLocation: "28", dropoffLocation: "B" }, { pickupLocation: "B", dropoffLocation: "28" }]
+      },
+      systemActor
+    );
+    bookingIds.push(booking.id);
+
+    await bookingsService.updateBooking(booking.id, { commissionValue: 0 }, systemActor);
+
+    const legs = await prisma.leg.findMany({ where: { bookingId: booking.id }, orderBy: { sequence: "asc" } });
+    expect(legs.map((leg) => leg.earningAllocationCents)).toEqual([3000, 3000]);
   });
 });

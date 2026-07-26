@@ -14,3 +14,25 @@ export function formatLegTime(scheduledAt: string | null): string {
 export function formatLegDateTime(scheduledAt: string | null): string {
   return scheduledAt ? dayjs(scheduledAt).format("YYYY-MM-DD (ddd) HH:mm") : "待确认";
 }
+
+export function formatDuration(minutes: number | null | undefined): string {
+  if (!minutes) return "待确认";
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours === 0) return `${mins} 分钟`;
+  if (mins === 0) return `${hours} 小时`;
+  return `${hours} 小时 ${mins} 分钟`;
+}
+
+export function formatEstimatedFinish(estimatedFinishAt: string | null | undefined): string {
+  return estimatedFinishAt ? dayjs(estimatedFinishAt).format("YYYY-MM-DD (ddd) HH:mm") : "待确认";
+}
+
+/** Pickup Time + Estimated Duration 自动算出 Estimated Finish Time；缺一个就不算。 */
+export function calculateEstimatedFinish(
+  scheduledAt: dayjs.Dayjs | null | undefined,
+  estimatedDurationMinutes: number | null | undefined
+): dayjs.Dayjs | undefined {
+  if (!scheduledAt || !estimatedDurationMinutes) return undefined;
+  return scheduledAt.add(estimatedDurationMinutes, "minute");
+}

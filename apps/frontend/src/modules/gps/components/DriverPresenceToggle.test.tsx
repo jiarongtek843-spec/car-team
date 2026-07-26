@@ -80,5 +80,8 @@ describe("DriverPresenceToggle（Mobile UAT Bug Fix：真实装置上点上线�
 
     expect(screen.getByText("Online")).toBeInTheDocument();
     expect(screen.queryByText("Offline")).not.toBeInTheDocument();
+
+    // Mobile UAT Round 2：Online 时开关要改成绿色，不是 antd 默认的蓝色。
+    expect(screen.getByRole("switch").style.backgroundColor).toBe("rgb(82, 196, 26)");
   });
 });
