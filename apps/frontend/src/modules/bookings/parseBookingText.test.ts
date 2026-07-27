@@ -43,6 +43,31 @@ describe("parseBookingText", () => {
     });
   });
 
+  describe("Mobile UAT Round 5：Duration 格式（Time: 栏位）", () => {
+    const cases: [string, number][] = [
+      ["3hour", 180],
+      ["3 hour", 180],
+      ["3hours", 180],
+      ["3 hours", 180],
+      ["3hr", 180],
+      ["3 hrs", 180],
+      ["3h", 180],
+      ["3小时", 180],
+      ["3个小时", 180],
+      ["3 jam", 180],
+      ["3jam", 180],
+      ["1.5 hours", 90],
+      ["1 hour 30 minutes", 90],
+      ["1h 30m", 90],
+      ["9 hrs", 540]
+    ];
+
+    it.each(cases)("Time: %s 要正确解析成 %i 分钟", (raw, expectedMinutes) => {
+      const parsed = parseBookingText(`Date: 27/7\nPick up: 9:30\nTime: ${raw}`);
+      expect(parsed.legs![0].estimatedDurationMinutes).toBe(expectedMinutes);
+    });
+  });
+
   describe("日期格式", () => {
     it("支援 26-7（用 - 隔开）", () => {
       const parsed = parseBookingText("Date: 26-7\nPick up: 10pm");

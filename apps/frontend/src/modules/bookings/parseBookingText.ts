@@ -98,6 +98,40 @@ function parseDateValue(raw: string): { year?: number; month: number; day: numbe
   return null;
 }
 
+const HOUR_UNIT = "(?:hours?|hrs?|h|小时|个小时|jam)";
+const MINUTE_UNIT = "(?:minutes?|mins?|m|分钟|分)";
+
+/**
+ * Mobile UAT Round 5 Bug Fix：这里之前只认得 "9 hrs"/"9hrs" 这种一定要有 "hr"/"hrs" 单位
+ * 的格式——像 "3hour"（没有 r，口语常见写法）会直接判定成「解析失败」，导致 Duration
+ * 抓不到，回程的 Pickup Date/Time 就永远算不出来、留空。这里改成支援 hour/hours/hr/hrs/h、
+ * 中文「小时」「个小时」、马来文「jam」，以及带分钟的组合格式（"1 hour 30 minutes"、
+ * "1h 30m"）跟小数（"1.5 hours"）。
+ */
+function parseDurationMinutes(raw: string): number | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+
+  const comboMatch = trimmed.match(
+    new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*${HOUR_UNIT}\\s*(\\d+(?:\\.\\d+)?)\\s*${MINUTE_UNIT}$`, "i")
+  );
+  if (comboMatch) {
+    return Math.round(Number(comboMatch[1]) * 60 + Number(comboMatch[2]));
+  }
+
+  const hourOnlyMatch = trimmed.match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*${HOUR_UNIT}$`, "i"));
+  if (hourOnlyMatch) {
+    return Math.round(Number(hourOnlyMatch[1]) * 60);
+  }
+
+  const minuteOnlyMatch = trimmed.match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*${MINUTE_UNIT}$`, "i"));
+  if (minuteOnlyMatch) {
+    return Math.round(Number(minuteOnlyMatch[1]));
+  }
+
+  return undefined;
+}
+
 function extractAddress(text: string): string | undefined {
   const lines = text.split(/\r?\n/);
   const addressLineIndex = lines.findIndex((line) => /^address\s*:?/i.test(line.trim()));
@@ -149,7 +183,7 @@ export function parseBookingText(text: string): ParsedBooking {
 
   const dateMatch = text.match(/Date:\s*(.+)/i);
   const pickupMatch = text.match(/Pick\s*up:\s*(.+)/i);
-  const durationMatch = text.match(/Time:\s*([\d.]+)\s*hrs?/i);
+  const durationMatch = text.match(/Time:\s*(.+)/i);
 
   let departAt: Dayjs | undefined;
   if (dateMatch && pickupMatch) {
@@ -161,9 +195,9 @@ export function parseBookingText(text: string): ParsedBooking {
     }
   }
 
-  // "Time: 9 hrs" 是去程这趟工作预计花多久，填进去程的 Estimated Duration 栏位让使用者
-  // 核对，前端会再用它跟 Pickup Time 一起自动算出回程的接送时间。
-  const estimatedDurationMinutes = durationMatch ? Math.round(Number(durationMatch[1]) * 60) : undefined;
+  // "Time: 3 hours" 是去程这趟工作预计花多久——现在只当内部资料用（不渲染成可编辑栏位），
+  // 前端拿它跟 Pickup Time 一起自动算出回程的接送时间。
+  const estimatedDurationMinutes = durationMatch ? parseDurationMinutes(durationMatch[1]) : undefined;
 
   const leg1: ParsedLeg = { dropoffLocation: address, scheduledAt: departAt, estimatedDurationMinutes };
   const leg2: ParsedLeg = { pickupLocation: address };

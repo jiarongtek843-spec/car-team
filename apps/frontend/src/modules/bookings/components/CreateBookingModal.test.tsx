@@ -15,6 +15,11 @@ vi.mock("../../../common/useIsMobile", () => ({ useIsMobile: () => true }));
 const OCR_SAMPLE =
   "Date: 26/7\nGirl: Kara\nPick up: 10pm\nTime: 9 hrs\nCollect: 540\nAddress:\n====================\nM vertical tower D\n====================";
 
+// Mobile UAT Round 5 报的 bug：这个格式（Time: 3hour，没有 r）之前解析失败，回程 Pickup
+// Date/Time 永远留空——用使用者实际贴的原文当回归测试样本，避免以后又坏掉。
+const OCR_SAMPLE_ROUND5_BUG =
+  "Date: 27/7\nGirl: sasa\nPick up: 9:30\nTime: 3hour\nCollect: 540\nAddress:\n====================\nM vertica\n====================";
+
 async function pasteAndParse(text: string) {
   await userEvent.type(screen.getByPlaceholderText(/贴上派单文字/), text);
   await userEvent.click(screen.getByRole("button", { name: "识别并填入" }));
@@ -144,6 +149,44 @@ describe("CreateBookingModal（手机建单成功，对应 Booking 手机要求�
     expect(returnAt.getMinutes()).toBe(0);
     // Duration 仍然当成 Booking metadata 送给后端（只是不显示在表单上）。
     expect(outboundLeg.estimatedDurationMinutes).toBe(540);
+  });
+
+  it("Mobile UAT Round 5 Bug 回归：Time: 3hour 这种格式要能算出回程 Pickup Date/Time（之前因为没有 r 解析失败，回程栏位永远留空）", async () => {
+    vi.mocked(http.post).mockResolvedValueOnce({ id: 51, girlName: "sasa" });
+    renderWithProviders(<CreateBookingModal open onClose={() => {}} />, { route: "/" });
+
+    await pasteAndParse(OCR_SAMPLE_ROUND5_BUG);
+
+    const pickupDateInputs = screen.getAllByPlaceholderText("选择日期");
+    const pickupTimeInputs = screen.getAllByPlaceholderText("选择时间");
+    // 回程 Pickup Date/Time 要自动填好，不能是空的。
+    expect((pickupDateInputs[1] as HTMLInputElement).value).toBe("2026-07-27");
+    expect((pickupTimeInputs[1] as HTMLInputElement).value).toBe("12:30");
+
+    await userEvent.click(screen.getByRole("button", { name: /建\s*立/ }));
+
+    await waitFor(() => expect(http.post).toHaveBeenCalled());
+    const [, payload] = vi.mocked(http.post).mock.calls[0];
+    const legs = (payload as { legs: { legType: string; scheduledAt?: string; estimatedDurationMinutes?: number }[] }).legs;
+    const returnLeg = legs[1];
+    const returnAt = new Date(returnLeg.scheduledAt!);
+    expect(returnAt.getDate()).toBe(27);
+    expect(returnAt.getHours()).toBe(12);
+    expect(returnAt.getMinutes()).toBe(30);
+    expect(legs[0].estimatedDurationMinutes).toBe(180);
+  });
+
+  it("Mobile UAT Round 5：回程 Leg 在 OCR 填 Duration 之前就已经存在，OCR 之后一样会更新它的 Pickup Date/Time", async () => {
+    renderWithProviders(<CreateBookingModal open onClose={() => {}} />, { route: "/" });
+
+    // 预设的两个 Leg（去程/回程）在贴 OCR 文字之前就已经在表单里了。
+    expect(screen.getByText("去程")).toBeInTheDocument();
+    expect(screen.getByText("回程")).toBeInTheDocument();
+
+    await pasteAndParse(OCR_SAMPLE_ROUND5_BUG);
+
+    const pickupTimeInputs = screen.getAllByPlaceholderText("选择时间");
+    expect((pickupTimeInputs[1] as HTMLInputElement).value).toBe("12:30");
   });
 
   it("Mobile UAT Round 4：去程 Pickup Time 手动再改一次，回程时间（手动覆盖前）会跟着重新计算", async () => {
