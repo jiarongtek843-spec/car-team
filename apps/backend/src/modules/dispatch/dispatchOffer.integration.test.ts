@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "../../config/prisma.js";
 import * as bookingsService from "../bookings/bookings.service.js";
 import * as dispatchOfferService from "./dispatchOffer.service.js";
+import * as driverJobsService from "../driverJobs/driverJobs.service.js";
 import { ConflictError, NotFoundError } from "../../common/errors.js";
 import type { AuditActor } from "../../common/audit.js";
 
@@ -35,6 +36,12 @@ beforeEach(() => {
 afterEach(async () => {
   await prisma.dispatchOffer.deleteMany({ where: { driverId: { in: driverIds } } });
   await prisma.driverLocation.deleteMany({ where: { driverId: { in: driverIds } } });
+  // 新增的 Wallet 入帐回归测试会把 Leg 一路跑到 COMPLETED，连带产生
+  // WalletTransaction/RevenueSharingSnapshot/BookingCharge，都要在删 Leg/Booking 之前
+  // 先清掉，不然会撞 FK constraint（沿用 revenueSharing.wallet.integration.test.ts 的清理顺序）。
+  await prisma.walletTransaction.deleteMany({ where: { bookingId: { in: bookingIds } } });
+  await prisma.revenueSharingSnapshot.deleteMany({ where: { bookingId: { in: bookingIds } } });
+  await prisma.bookingCharge.deleteMany({ where: { bookingId: { in: bookingIds } } });
   await prisma.leg.deleteMany({ where: { bookingId: { in: bookingIds } } });
   await prisma.booking.deleteMany({ where: { id: { in: bookingIds } } });
   await prisma.driver.deleteMany({ where: { id: { in: driverIds } } });
@@ -300,5 +307,89 @@ describe("dispatchOffer.service.ts (Phase 1 Dispatch Engine, simplified)", () =>
     // Leg 本身完全不受 Sweep 影响，还是留在 Waiting Bookings 名单里，等 Dispatcher 手动处理。
     const legAfterSweep = await prisma.leg.findUniqueOrThrow({ where: { id: bookingExpired.legs[0].id } });
     expect(legAfterSweep.status).toBe("PENDING");
+  });
+
+  /**
+   * UAT Bug 回归（Driver Income Not Credited to Wallet）：Dispatcher 用户实测报告「透过
+   * Dispatch Offer 接单 → 完成行程，Driver Wallet 没有入帐」。实际追查下来后端逻辑本身是
+   * 对的（acceptOffer 正确写入 Leg.driverId，completeLeg 照样能查到、照样触发
+   * payoutForCompletedLeg）——问题出在前端 useCompleteLegMutation 没有 invalidate
+   * ["wallet"] query，画面看起来像没入帐，其实后端已经记了帐。这里补的是后端这一段
+   * 完整流程本身的回归测试，钉住「Dispatch Offer 接单」这条路径不会重蹈覆辙。
+   */
+  describe("Wallet 入帐回归（Dispatch Offer 接单 → Complete Job）", () => {
+    it("Dispatch Offer 接单 → 完整跑完 Driver Job 状态机 → Complete 之后 Wallet 只入帐一次，driver/leg/booking 都对得上", async () => {
+      const driver = await createOnlineIdleDriver("Wallet Regression Offer Driver");
+      driverIds.push(driver.id);
+
+      const booking = await bookingsService.createBooking(
+        { girlName: "WalletRegressionOffer", totalAmountCents: 15000, legs: [{ pickupLocation: "A", dropoffLocation: "B" }] },
+        systemActor
+      );
+      bookingIds.push(booking.id);
+      const [leg] = booking.legs;
+
+      const offers = await dispatchOfferService.sendOffer(leg.id, systemActor);
+      const offer = offers.find((o) => o.driverId === driver.id)!;
+      const assignedLeg = await dispatchOfferService.acceptOffer(driver.id, offer.id);
+
+      // acceptOffer 只做 Leg 指派，这个当下不该有任何 Wallet Transaction。
+      expect(assignedLeg.status).toBe("ASSIGNED");
+      expect(assignedLeg.driverId).toBe(driver.id);
+      const walletAfterAssign = await prisma.walletTransaction.findMany({ where: { legId: leg.id } });
+      expect(walletAfterAssign).toHaveLength(0);
+
+      await driverJobsService.acceptLeg(driver.id, leg.id);
+      await driverJobsService.markDriverArriving(driver.id, leg.id);
+      await driverJobsService.markPassengerOnBoard(driver.id, leg.id);
+      const completedLeg = await driverJobsService.completeLeg(driver.id, leg.id, systemActor);
+
+      expect(completedLeg.status).toBe("COMPLETED");
+      // completeLeg 直接回传的序列化结果就该带出这笔收入——跟 driverJobs.controller.ts
+      // 回给前端的资料是同一份，Driver Portal 显示的 driverEarningCents 就是这个栏位。
+      expect(completedLeg.driverEarningCents).not.toBeNull();
+      expect(completedLeg.driverEarningCents).toBeGreaterThan(0);
+      expect(completedLeg.walletStatus).toBe("PENDING");
+
+      const walletAfterComplete = await prisma.walletTransaction.findMany({ where: { legId: leg.id } });
+      expect(walletAfterComplete).toHaveLength(1);
+      const [tx] = walletAfterComplete;
+      expect(tx.driverId).toBe(driver.id);
+      expect(tx.legId).toBe(leg.id);
+      expect(tx.bookingId).toBe(booking.id);
+      expect(tx.transactionType).toBe("REVENUE_SHARE_PAYOUT");
+      expect(tx.amountCents).toBe(completedLeg.driverEarningCents);
+
+      // 重复 Complete：Leg 状态机（applyLegTransition 的条件式 UPDATE）会直接挡下第二次
+      // 转换，从未到达 Payout 逻辑——不会有第二笔 Wallet Transaction。
+      await expect(driverJobsService.completeLeg(driver.id, leg.id, systemActor)).rejects.toThrow(ConflictError);
+      const walletAfterDuplicateAttempt = await prisma.walletTransaction.findMany({ where: { legId: leg.id } });
+      expect(walletAfterDuplicateAttempt).toHaveLength(1);
+    });
+
+    it("手动 Quick Assign（非 Dispatch Offer）→ Complete Job → Wallet 一样只入帐一次，两条指派路径行为一致", async () => {
+      const driver = await createOnlineIdleDriver("Wallet Regression Manual Driver");
+      driverIds.push(driver.id);
+
+      const booking = await bookingsService.createBooking(
+        { girlName: "WalletRegressionManual", totalAmountCents: 20000, legs: [{ pickupLocation: "A", dropoffLocation: "B" }] },
+        systemActor
+      );
+      bookingIds.push(booking.id);
+      const [leg] = booking.legs;
+
+      await prisma.leg.update({ where: { id: leg.id }, data: { driverId: driver.id, status: "ASSIGNED", assignedAt: new Date() } });
+
+      await driverJobsService.acceptLeg(driver.id, leg.id);
+      await driverJobsService.markDriverArriving(driver.id, leg.id);
+      await driverJobsService.markPassengerOnBoard(driver.id, leg.id);
+      const completedLeg = await driverJobsService.completeLeg(driver.id, leg.id, systemActor);
+
+      expect(completedLeg.driverEarningCents).toBeGreaterThan(0);
+      const walletTxs = await prisma.walletTransaction.findMany({ where: { legId: leg.id } });
+      expect(walletTxs).toHaveLength(1);
+      expect(walletTxs[0]?.driverId).toBe(driver.id);
+      expect(walletTxs[0]?.bookingId).toBe(booking.id);
+    });
   });
 });

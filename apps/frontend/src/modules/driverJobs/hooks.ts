@@ -78,6 +78,13 @@ export function useCompleteLegMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (legId: number) => driverJobsApi.completeLeg(legId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: MY_LEGS_KEY })
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: MY_LEGS_KEY });
+      // Complete Job 会在同一个 Transaction 里立刻记一笔 Wallet Transaction（LEG_EARNING
+      // 或 REVENUE_SHARE_PAYOUT），但这里原本没有 invalidate ["wallet"]——Driver 首页的
+      // 「今日收入」跟 My Earnings 页面都读同一份 wallet query cache，不 invalidate 的话
+      // 金额已经在后端入帐了，画面却要等使用者手动重新整理才会显示，看起来像是「没有入帐」。
+      queryClient.invalidateQueries({ queryKey: ["wallet"] });
+    }
   });
 }
