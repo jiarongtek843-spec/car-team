@@ -3,6 +3,9 @@ import { prisma } from "../../config/prisma.js";
 import { UNFINISHED_LEG_STATUSES } from "../bookings/bookings.status.js";
 import { computePresenceStatus, getPresenceThresholds, type DriverPresenceStatus } from "../gps/gps.service.js";
 import { parseLocalDateOnly, startOfLocalDay } from "../../common/date.js";
+import { NotFoundError } from "../../common/errors.js";
+import { findEligibleDrivers, type EligibilityCandidateDriver } from "./eligibility.js";
+import { rankDrivers, type RankingCandidateDriver } from "./ranking.js";
 
 /**
  * Dispatch Center 是纯读取的聚合画面，直接组合既有 Module 的资料（Booking/Leg、Driver、
@@ -247,5 +250,66 @@ export async function getDispatchStatistics() {
     completedToday,
     onlineDrivers,
     offlineDrivers: totalActiveDrivers - onlineDrivers
+  };
+}
+
+interface SuggestedDriverCandidate extends EligibilityCandidateDriver, RankingCandidateDriver {
+  name: string;
+  vehiclePlateNumber: string | null;
+  gpsStatus: DriverPresenceStatus;
+  secondsSinceUpdate: number | null;
+  completedToday: number;
+}
+
+/**
+ * Phase 1 Driver Eligibility + Ranking Engine（docs/design/phase2-gps-dispatch-architecture.md
+ * §3.1/§3.2）：给一个还在等车的 Leg，回传「排序好、只剩合格 Driver」的建议名单，纯粹给
+ * Dispatcher 参考——不建立 DispatchOffer、不自动指派，人工指派（assignDriver）完全不受
+ * 影响，一直都在。Leg 目前没有上车点坐标栏位，所以距离排序目前一定会是 null、整批退回
+ * 「今日已完成趟数由少到多」这个 tie-breaker，等 §6.7 的坐标栏位补上之后才会真的按距离排。
+ */
+export async function getSuggestedDrivers(legId: number) {
+  const leg = await prisma.leg.findUnique({
+    where: { id: legId },
+    include: { booking: { select: { id: true, girlName: true } } }
+  });
+  if (!leg) {
+    throw new NotFoundError(`Leg ${legId} not found`);
+  }
+
+  const drivers = await listDispatchDrivers({});
+  const candidates: SuggestedDriverCandidate[] = drivers.map((d) => ({
+    id: d.driver.id,
+    name: d.driver.name,
+    vehiclePlateNumber: d.driver.vehiclePlateNumber,
+    // listDispatchDrivers 的查询本身已经限定 status === "ACTIVE"，这里维持显式字段只是
+    // 让 ACTIVE_STATUS 这条 Rule 可以脱离这支 API 单独测试。
+    status: "ACTIVE",
+    presenceStatus: d.gpsStatus,
+    gpsStatus: d.gpsStatus,
+    workloadStatus: d.workloadStatus,
+    secondsSinceUpdate: d.secondsSinceUpdate,
+    completedToday: d.completedToday,
+    latitude: d.location?.latitude ?? null,
+    longitude: d.location?.longitude ?? null
+  }));
+
+  const eligible = findEligibleDrivers(candidates, { excludeDriverIds: [] });
+  const ranked = rankDrivers(eligible, { pickupLatitude: null, pickupLongitude: null });
+
+  return {
+    legId: leg.id,
+    bookingId: leg.bookingId,
+    girlName: leg.booking.girlName,
+    pickupLocation: leg.pickupLocation,
+    dropoffLocation: leg.dropoffLocation,
+    suggestions: ranked.map((r, index) => ({
+      rank: index + 1,
+      driver: { id: r.candidate.id, name: r.candidate.name, vehiclePlateNumber: r.candidate.vehiclePlateNumber },
+      distanceKm: r.distanceKm,
+      gpsStatus: r.candidate.gpsStatus,
+      secondsSinceUpdate: r.candidate.secondsSinceUpdate,
+      completedToday: r.candidate.completedToday
+    }))
   };
 }

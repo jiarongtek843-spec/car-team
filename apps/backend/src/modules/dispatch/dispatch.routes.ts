@@ -11,3 +11,4 @@ dispatchRouter.use(requireAuth, requirePermission(PERMISSIONS.DISPATCH_READ));
 dispatchRouter.get("/waiting-bookings", asyncHandler(dispatchController.waitingBookings));
 dispatchRouter.get("/drivers", asyncHandler(dispatchController.drivers));
 dispatchRouter.get("/statistics", asyncHandler(dispatchController.statistics));
+dispatchRouter.get("/legs/:legId/suggested-drivers", asyncHandler(dispatchController.suggestedDrivers));

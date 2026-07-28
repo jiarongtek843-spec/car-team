@@ -1,10 +1,52 @@
 import { useState } from "react";
 import { Alert, Button, Card, Empty, Input, List, Select, Space, Tag, Typography, message } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
-import { useDispatchAssignMutation, useDispatchDriversQuery } from "../hooks";
+import { useDispatchAssignMutation, useDispatchDriversQuery, useSuggestedDriversQuery } from "../hooks";
 import { GPS_STATUS_COLOR, GPS_STATUS_LABELS } from "../types";
 import type { DispatchWaitingLeg, DriverDispatchFilter } from "../types";
 import { ResponsiveFilterBar } from "../../../common/ResponsiveFilterBar";
+
+/**
+ * Phase 1 Driver Eligibility + Ranking Engine 的建议名单——只在选好一笔等派车的 Leg 之后
+ * 才出现在既有 Driver List 上方，纯粹是排序参考，点 Assign 走的是同一支既有 API，
+ * Dispatcher 永远可以直接忽略这个区块、照旧从下面完整名单手动挑人。
+ */
+function SuggestedDriversSection({
+  selectedLeg,
+  onAssign,
+  assignPending
+}: {
+  selectedLeg: DispatchWaitingLeg;
+  onAssign: (driverId: number) => void;
+  assignPending: boolean;
+}) {
+  const { data, isLoading } = useSuggestedDriversQuery(selectedLeg.legId);
+
+  if (isLoading || !data || data.suggestions.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card size="small" title="建议 Driver（按距离/空档排序）" style={{ marginBottom: 12 }}>
+      <Space direction="vertical" style={{ width: "100%" }} size={8}>
+        {data.suggestions.map((s) => (
+          <Space key={s.driver.id} style={{ width: "100%", justifyContent: "space-between" }} wrap>
+            <Space>
+              <Tag>{s.rank}</Tag>
+              <Typography.Text strong>{s.driver.name}</Typography.Text>
+              <Typography.Text type="secondary">
+                {s.distanceKm !== null ? `${s.distanceKm.toFixed(1)} km` : `今日 ${s.completedToday} 趟`}
+              </Typography.Text>
+            </Space>
+            <Button size="small" type="primary" loading={assignPending} onClick={() => onAssign(s.driver.id)}>
+              Assign
+            </Button>
+          </Space>
+        ))}
+      </Space>
+    </Card>
+  );
+}
 
 const FILTER_OPTIONS: { label: string; value: DriverDispatchFilter | "ALL" }[] = [
   { label: "全部", value: "ALL" },
@@ -62,6 +104,10 @@ export function DriverListPanel({
         />
       ) : (
         <Alert type="info" showIcon style={{ marginBottom: 12 }} message="先在左边选一笔 Booking，才能指派 Driver" />
+      )}
+
+      {selectedLeg && (
+        <SuggestedDriversSection selectedLeg={selectedLeg} onAssign={handleAssign} assignPending={assign.isPending} />
       )}
 
       <ResponsiveFilterBar>

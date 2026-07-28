@@ -32,3 +32,11 @@ export async function statistics(_req: Request, res: Response) {
   const result = await dispatchService.getDispatchStatistics();
   res.json(result);
 }
+
+const legIdParamSchema = z.object({ legId: z.coerce.number().int().positive() });
+
+export async function suggestedDrivers(req: Request, res: Response) {
+  const { legId } = legIdParamSchema.parse(req.params);
+  const result = await dispatchService.getSuggestedDrivers(legId);
+  res.json(result);
+}

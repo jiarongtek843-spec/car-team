@@ -32,6 +32,20 @@ export function useDispatchStatisticsQuery() {
 }
 
 /**
+ * Phase 1 Driver Eligibility + Ranking Engine（docs/design/phase2-gps-dispatch-architecture.md
+ * §3.1/§3.2）：只在 Dispatcher 选好一笔等派车的 Leg 之后才查——纯粹是排序建议，不建立
+ * DispatchOffer、不自动指派，Quick Assign 手动流程完全不受影响。
+ */
+export function useSuggestedDriversQuery(legId: number | null) {
+  return useQuery({
+    queryKey: ["dispatch", "suggested-drivers", legId],
+    queryFn: () => dispatchApi.fetchSuggestedDrivers(legId as number),
+    enabled: legId !== null,
+    refetchInterval: POLL_INTERVAL_MS
+  });
+}
+
+/**
  * Quick Assign/Reassign 直接复用 Module 1/2 既有的 assignDriver API（bookings/api.ts），
  * 不重新实现指派逻辑——Dispatch Center 只是换一种更快的方式呼叫同一个既有 API。
  */

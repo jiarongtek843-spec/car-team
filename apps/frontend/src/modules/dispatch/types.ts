@@ -34,6 +34,24 @@ export interface DispatchDriver {
   workloadStatus: "BUSY" | "IDLE";
 }
 
+export interface SuggestedDriver {
+  rank: number;
+  driver: { id: number; name: string; vehiclePlateNumber: string | null };
+  distanceKm: number | null;
+  gpsStatus: DispatchGpsStatus;
+  secondsSinceUpdate: number | null;
+  completedToday: number;
+}
+
+export interface SuggestedDriversResult {
+  legId: number;
+  bookingId: number;
+  girlName: string;
+  pickupLocation: string | null;
+  dropoffLocation: string | null;
+  suggestions: SuggestedDriver[];
+}
+
 export interface DispatchStatistics {
   waitingBookings: number;
   assigned: number;

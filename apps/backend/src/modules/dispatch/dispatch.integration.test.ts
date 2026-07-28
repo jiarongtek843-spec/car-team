@@ -350,4 +350,101 @@ describe("Dispatch Center aggregation (Module 6 scenarios)", () => {
     // 只是确认查得到，不对全局总数做精确断言（其他测试并行跑，全局计数不是这个测试能控制的）。
     expect(legWaiting).toBeDefined();
   });
+
+  describe("getSuggestedDrivers (Phase 1 Eligibility + Ranking Engine, §3.1/§3.2)", () => {
+    it("throws NotFoundError for a leg that doesn't exist", async () => {
+      await expect(dispatchService.getSuggestedDrivers(999999999)).rejects.toThrow();
+    });
+
+    it("only suggests ACTIVE + ONLINE + IDLE drivers, excluding offline/busy/inactive ones", async () => {
+      const eligibleDriver = await createTestDriver("Suggested Eligible Driver");
+      driverIds.push(eligibleDriver.id);
+      await prisma.driver.update({
+        where: { id: eligibleDriver.id },
+        data: { isOnline: true, onlineSince: new Date() }
+      });
+
+      const offlineDriver = await createTestDriver("Suggested Offline Driver");
+      driverIds.push(offlineDriver.id);
+
+      const busyDriver = await createTestDriver("Suggested Busy Driver");
+      driverIds.push(busyDriver.id);
+      await prisma.driver.update({ where: { id: busyDriver.id }, data: { isOnline: true, onlineSince: new Date() } });
+
+      const inactiveDriver = await createTestDriver("Suggested Inactive Driver");
+      driverIds.push(inactiveDriver.id);
+      await prisma.driver.update({
+        where: { id: inactiveDriver.id },
+        data: { isOnline: true, onlineSince: new Date(), status: "INACTIVE" }
+      });
+
+      const waitingBooking = await bookingsService.createBooking({
+        girlName: "SuggestedDriversWaiting",
+        totalAmountCents: 0,
+        legs: [{ pickupLocation: "28", dropoffLocation: "Somewhere" }]
+      });
+      bookingIds.push(waitingBooking.id);
+      const [waitingLeg] = waitingBooking.legs;
+
+      // busyDriver 手上已经有一个进行中的 Leg，理论上应该在建议名单里被排除。
+      const busyBooking = await bookingsService.createBooking({
+        girlName: "SuggestedDriversBusyBooking",
+        totalAmountCents: 0,
+        legs: [{ pickupLocation: "A", dropoffLocation: "B" }]
+      });
+      bookingIds.push(busyBooking.id);
+      await prisma.leg.update({
+        where: { id: busyBooking.legs[0].id },
+        data: { status: "ASSIGNED", driverId: busyDriver.id }
+      });
+
+      const result = await dispatchService.getSuggestedDrivers(waitingLeg.id);
+      const suggestedDriverIds = result.suggestions.map((s) => s.driver.id);
+
+      expect(suggestedDriverIds).toContain(eligibleDriver.id);
+      expect(suggestedDriverIds).not.toContain(offlineDriver.id);
+      expect(suggestedDriverIds).not.toContain(busyDriver.id);
+      expect(suggestedDriverIds).not.toContain(inactiveDriver.id);
+      expect(result.legId).toBe(waitingLeg.id);
+      expect(result.bookingId).toBe(waitingBooking.id);
+      expect(result.girlName).toBe("SuggestedDriversWaiting");
+    });
+
+    it("falls back to fewest-completed-today ordering when there's no GPS/pickup coordinates", async () => {
+      const busyToday = await createTestDriver("Suggested Fallback Busy Today");
+      driverIds.push(busyToday.id);
+      await prisma.driver.update({ where: { id: busyToday.id }, data: { isOnline: true, onlineSince: new Date() } });
+
+      const freshToday = await createTestDriver("Suggested Fallback Fresh Today");
+      driverIds.push(freshToday.id);
+      await prisma.driver.update({ where: { id: freshToday.id }, data: { isOnline: true, onlineSince: new Date() } });
+
+      const completedBooking = await bookingsService.createBooking({
+        girlName: "SuggestedDriversCompletedToday",
+        totalAmountCents: 0,
+        legs: [{ pickupLocation: "A", dropoffLocation: "B" }]
+      });
+      bookingIds.push(completedBooking.id);
+      await prisma.leg.update({
+        where: { id: completedBooking.legs[0].id },
+        data: { status: "COMPLETED", driverId: busyToday.id, completedAt: new Date() }
+      });
+
+      const waitingBooking = await bookingsService.createBooking({
+        girlName: "SuggestedDriversFallbackWaiting",
+        totalAmountCents: 0,
+        legs: [{ pickupLocation: "28", dropoffLocation: "Somewhere" }]
+      });
+      bookingIds.push(waitingBooking.id);
+
+      const result = await dispatchService.getSuggestedDrivers(waitingBooking.legs[0].id);
+      const rankedIds = result.suggestions.map((s) => s.driver.id);
+      const busyIndex = rankedIds.indexOf(busyToday.id);
+      const freshIndex = rankedIds.indexOf(freshToday.id);
+
+      expect(freshIndex).toBeGreaterThanOrEqual(0);
+      expect(busyIndex).toBeGreaterThan(freshIndex);
+      expect(result.suggestions.every((s) => s.distanceKm === null)).toBe(true);
+    });
+  });
 });

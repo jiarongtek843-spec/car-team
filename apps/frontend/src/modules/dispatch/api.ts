@@ -1,5 +1,12 @@
 import { http } from "../../api/http";
-import type { BookingDispatchFilter, DispatchDriver, DispatchStatistics, DispatchWaitingLeg, DriverDispatchFilter } from "./types";
+import type {
+  BookingDispatchFilter,
+  DispatchDriver,
+  DispatchStatistics,
+  DispatchWaitingLeg,
+  DriverDispatchFilter,
+  SuggestedDriversResult
+} from "./types";
 
 function toQueryString(params: object) {
   const search = new URLSearchParams();
@@ -22,4 +29,8 @@ export function fetchDispatchDrivers(params: { filter?: DriverDispatchFilter; se
 
 export function fetchDispatchStatistics() {
   return http.get<DispatchStatistics>("/api/admin/dispatch/statistics");
+}
+
+export function fetchSuggestedDrivers(legId: number) {
+  return http.get<SuggestedDriversResult>(`/api/admin/dispatch/legs/${legId}/suggested-drivers`);
 }
