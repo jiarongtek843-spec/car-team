@@ -2,11 +2,43 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as driverJobsApi from "./api";
 
 const MY_LEGS_KEY = ["driver-legs"];
+const MY_OFFERS_KEY = ["driver-offers"];
+// Offer 有明确的逾时时限（CompanySettings.dispatchOfferTimeoutSeconds，通常几十秒），
+// 轮询要比 Dispatch Center 的 5 秒更紧一点，不然 Driver 可能看着一个其实已经过期/被
+// 别人抢走的 Offer 卡片按下去才发现晚了。
+const OFFERS_POLL_INTERVAL_MS = 3000;
 
 export function useMyLegsQuery() {
   return useQuery({
     queryKey: MY_LEGS_KEY,
     queryFn: driverJobsApi.fetchMyLegs
+  });
+}
+
+export function useMyOffersQuery() {
+  return useQuery({
+    queryKey: MY_OFFERS_KEY,
+    queryFn: driverJobsApi.fetchMyOffers,
+    refetchInterval: OFFERS_POLL_INTERVAL_MS
+  });
+}
+
+export function useAcceptOfferMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (offerId: number) => driverJobsApi.acceptOffer(offerId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: MY_OFFERS_KEY });
+      queryClient.invalidateQueries({ queryKey: MY_LEGS_KEY });
+    }
+  });
+}
+
+export function useDeclineOfferMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (offerId: number) => driverJobsApi.declineOffer(offerId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: MY_OFFERS_KEY })
   });
 }
 

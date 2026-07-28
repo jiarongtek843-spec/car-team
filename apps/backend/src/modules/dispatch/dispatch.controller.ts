@@ -1,6 +1,9 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import * as dispatchService from "./dispatch.service.js";
+import * as dispatchOfferService from "./dispatchOffer.service.js";
+import { parseIdParam } from "../../common/params.js";
+import { actorFromRequest } from "../../common/audit.js";
 
 const bookingFilterSchema = z.enum(["WAITING", "ASSIGNED", "ACCEPTED", "IN_PROGRESS", "COMPLETED"]).optional();
 const driverFilterSchema = z.enum(["ONLINE", "OFFLINE", "CONNECTION_LOST", "BUSY", "IDLE"]).optional();
@@ -39,4 +42,16 @@ export async function suggestedDrivers(req: Request, res: Response) {
   const { legId } = legIdParamSchema.parse(req.params);
   const result = await dispatchService.getSuggestedDrivers(legId);
   res.json(result);
+}
+
+export async function sendOffer(req: Request, res: Response) {
+  const legId = parseIdParam(req.params.legId);
+  const offers = await dispatchOfferService.sendOffer(legId, actorFromRequest(req)!);
+  res.status(201).json(offers);
+}
+
+export async function offersForLeg(req: Request, res: Response) {
+  const legId = parseIdParam(req.params.legId);
+  const offers = await dispatchOfferService.listOffersForLeg(legId);
+  res.json(offers);
 }

@@ -85,3 +85,35 @@ export const GPS_STATUS_COLOR: Record<DispatchGpsStatus, string> = {
   OFFLINE: "default",
   CONNECTION_LOST: "warning"
 };
+
+/**
+ * Phase 1 Dispatch Engine（简化版，见 apps/backend/.../dispatchOffer.service.ts 顶部注解）：
+ * 一次 Send Offer = 同一批合格 Driver 各一笔 Offer，没有 Wave/Round。
+ */
+export type DispatchOfferStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED";
+
+export interface DispatchOffer {
+  id: number;
+  legId: number;
+  driverId: number;
+  status: DispatchOfferStatus;
+  distanceKm: number | null;
+  offeredAt: string;
+  expiresAt: string;
+  respondedAt: string | null;
+  driver: { id: number; name: string; vehiclePlateNumber: string | null };
+}
+
+export const OFFER_STATUS_LABELS: Record<DispatchOfferStatus, string> = {
+  PENDING: "等待回应",
+  ACCEPTED: "已接受",
+  DECLINED: "已拒绝",
+  EXPIRED: "已失效"
+};
+
+export const OFFER_STATUS_COLOR: Record<DispatchOfferStatus, string> = {
+  PENDING: "processing",
+  ACCEPTED: "success",
+  DECLINED: "default",
+  EXPIRED: "default"
+};

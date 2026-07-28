@@ -4,6 +4,7 @@ import { parseIdParam } from "../../common/params.js";
 import { ForbiddenError } from "../../common/errors.js";
 import { actorFromRequest, writeAuditLog } from "../../common/audit.js";
 import * as driverJobsService from "./driverJobs.service.js";
+import * as dispatchOfferService from "../dispatch/dispatchOffer.service.js";
 
 const rejectSchema = z.object({
   reason: z.string().min(1)
@@ -83,6 +84,43 @@ export async function onBoard(req: Request, res: Response) {
   });
 
   res.json(leg);
+}
+
+export async function myOffers(req: Request, res: Response) {
+  const driverId = getDriverId(req);
+  const offers = await dispatchOfferService.listMyPendingOffers(driverId);
+  res.json(offers);
+}
+
+export async function acceptOffer(req: Request, res: Response) {
+  const driverId = getDriverId(req);
+  const offerId = parseIdParam(req.params.offerId);
+  const leg = await dispatchOfferService.acceptOffer(driverId, offerId);
+
+  await writeAuditLog({
+    actor: actorFromRequest(req),
+    action: "DISPATCH_OFFER_ACCEPT",
+    entityType: "Leg",
+    entityId: leg.id,
+    metadata: { offerId }
+  });
+
+  res.json(leg);
+}
+
+export async function declineOffer(req: Request, res: Response) {
+  const driverId = getDriverId(req);
+  const offerId = parseIdParam(req.params.offerId);
+  await dispatchOfferService.declineOffer(driverId, offerId);
+
+  await writeAuditLog({
+    actor: actorFromRequest(req),
+    action: "DISPATCH_OFFER_DECLINE",
+    entityType: "DispatchOffer",
+    entityId: offerId
+  });
+
+  res.status(204).send();
 }
 
 export async function complete(req: Request, res: Response) {

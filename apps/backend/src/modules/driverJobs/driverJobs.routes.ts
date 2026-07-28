@@ -9,6 +9,9 @@ export const driverJobsRouter = Router();
 driverJobsRouter.use(requireAuth, requirePermission(PERMISSIONS.DRIVER_JOBS_SELF));
 
 driverJobsRouter.get("/", asyncHandler(driverJobsController.list));
+driverJobsRouter.get("/offers", asyncHandler(driverJobsController.myOffers));
+driverJobsRouter.post("/offers/:offerId/accept", asyncHandler(driverJobsController.acceptOffer));
+driverJobsRouter.post("/offers/:offerId/decline", asyncHandler(driverJobsController.declineOffer));
 driverJobsRouter.post("/:legId/accept", asyncHandler(driverJobsController.accept));
 driverJobsRouter.post("/:legId/reject", asyncHandler(driverJobsController.reject));
 driverJobsRouter.post("/:legId/arriving", asyncHandler(driverJobsController.arriving));

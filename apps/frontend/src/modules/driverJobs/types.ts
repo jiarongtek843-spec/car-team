@@ -36,3 +36,22 @@ export interface DriverLeg {
     status: BookingStatus;
   };
 }
+
+/**
+ * Phase 1 Dispatch Engine（简化版）：Driver 收到的 Offer——「先接先赢」，逾时或被
+ * 别人抢先就自动关闭，不会变成正式的 Leg 指派。只列 PENDING、还没过期的。
+ */
+export interface DriverPendingOffer {
+  id: number;
+  legId: number;
+  distanceKm: number | null;
+  offeredAt: string;
+  expiresAt: string;
+  leg: {
+    id: number;
+    pickupLocation: string | null;
+    dropoffLocation: string | null;
+    scheduledAt: string | null;
+    booking: { id: number; girlName: string };
+  };
+}

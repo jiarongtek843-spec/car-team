@@ -1,8 +1,20 @@
 import { http } from "../../api/http";
-import type { DriverLeg } from "./types";
+import type { DriverLeg, DriverPendingOffer } from "./types";
 
 export function fetchMyLegs() {
   return http.get<DriverLeg[]>("/api/driver/legs");
+}
+
+export function fetchMyOffers() {
+  return http.get<DriverPendingOffer[]>("/api/driver/legs/offers");
+}
+
+export function acceptOffer(offerId: number) {
+  return http.post<DriverLeg>(`/api/driver/legs/offers/${offerId}/accept`);
+}
+
+export function declineOffer(offerId: number) {
+  return http.post<void>(`/api/driver/legs/offers/${offerId}/decline`);
 }
 
 export function acceptLeg(legId: number) {

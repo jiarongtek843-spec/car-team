@@ -1,10 +1,66 @@
 import { useState } from "react";
 import { Alert, Button, Card, Empty, Input, List, Select, Space, Tag, Typography, message } from "antd";
-import { SearchOutlined } from "@ant-design/icons";
-import { useDispatchAssignMutation, useDispatchDriversQuery, useSuggestedDriversQuery } from "../hooks";
-import { GPS_STATUS_COLOR, GPS_STATUS_LABELS } from "../types";
+import { SearchOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import {
+  useDispatchAssignMutation,
+  useDispatchDriversQuery,
+  useOffersForLegQuery,
+  useSendOfferMutation,
+  useSuggestedDriversQuery
+} from "../hooks";
+import { GPS_STATUS_COLOR, GPS_STATUS_LABELS, OFFER_STATUS_COLOR, OFFER_STATUS_LABELS } from "../types";
 import type { DispatchWaitingLeg, DriverDispatchFilter } from "../types";
 import { ResponsiveFilterBar } from "../../../common/ResponsiveFilterBar";
+
+/**
+ * Phase 1 Dispatch Engine（简化版）：Dispatcher 按一次「Send Offer」，当下所有合格 Driver
+ * 同时收到 Offer（不分批），第一个 Accept 的赢，其他自动关闭。逾时没人 Accept，这笔 Leg
+ * 还是留在左边的 Waiting Bookings 名单——要重送是 Dispatcher 自己再按一次，不会自动重试。
+ * 这个区块完全不影响下面既有的 Quick Assign 手动流程，两条路可以并存。
+ */
+function SendOfferSection({ selectedLeg }: { selectedLeg: DispatchWaitingLeg }) {
+  const { data: offers } = useOffersForLegQuery(selectedLeg.legId);
+  const sendOffer = useSendOfferMutation();
+
+  const hasActivePending = (offers ?? []).some(
+    (o) => o.status === "PENDING" && new Date(o.expiresAt).getTime() > Date.now()
+  );
+
+  async function handleSendOffer() {
+    try {
+      await sendOffer.mutateAsync(selectedLeg.legId);
+      message.success("Offer 已送出给所有合格 Driver");
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : "送出失败，请重试");
+    }
+  }
+
+  return (
+    <Card size="small" title="Send Offer（自动派车）" style={{ marginBottom: 12 }}>
+      <Space direction="vertical" style={{ width: "100%" }} size={8}>
+        <Button
+          type="primary"
+          icon={<ThunderboltOutlined />}
+          loading={sendOffer.isPending}
+          disabled={hasActivePending}
+          onClick={handleSendOffer}
+        >
+          {hasActivePending ? "Offer 进行中…" : "Send Offer"}
+        </Button>
+        {offers && offers.length > 0 && (
+          <Space direction="vertical" size={4} style={{ width: "100%" }}>
+            {offers.map((offer) => (
+              <Space key={offer.id} style={{ width: "100%", justifyContent: "space-between" }} wrap>
+                <Typography.Text>{offer.driver.name}</Typography.Text>
+                <Tag color={OFFER_STATUS_COLOR[offer.status]}>{OFFER_STATUS_LABELS[offer.status]}</Tag>
+              </Space>
+            ))}
+          </Space>
+        )}
+      </Space>
+    </Card>
+  );
+}
 
 /**
  * Phase 1 Driver Eligibility + Ranking Engine 的建议名单——只在选好一笔等派车的 Leg 之后
@@ -107,7 +163,10 @@ export function DriverListPanel({
       )}
 
       {selectedLeg && (
-        <SuggestedDriversSection selectedLeg={selectedLeg} onAssign={handleAssign} assignPending={assign.isPending} />
+        <>
+          <SendOfferSection selectedLeg={selectedLeg} />
+          <SuggestedDriversSection selectedLeg={selectedLeg} onAssign={handleAssign} assignPending={assign.isPending} />
+        </>
       )}
 
       <ResponsiveFilterBar>

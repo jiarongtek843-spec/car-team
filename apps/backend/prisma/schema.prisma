@@ -45,6 +45,21 @@ enum LegStatus {
   CANCELLED
 }
 
+// Phase 1 Dispatch Engine（docs/design/phase2-gps-dispatch-architecture.md §3.3，2026-07 简化版）：
+// 刻意没有「Wave/Round」的概念——Dispatcher 按一次「Send Offer」，合格的 Driver 会同时收到
+// Offer，不是分批送。第一个 Accept 的赢，其他 PENDING 的 Offer 立刻关闭；逾时没人 Accept
+// 就整批变 EXPIRED，Leg 留在既有的 Waiting Bookings 名单，交回 Dispatcher 手动处理或再送一次——
+// 不会自动重试第二轮。
+enum DispatchOfferStatus {
+  PENDING
+  ACCEPTED
+  // Driver 主动拒绝
+  DECLINED
+  // 逾时没回应，或者另一个 Offer 先被 Accept 而被自动关闭——两种情况都算「这个 Offer 结束了、
+  // 不会变成 Assigned」，刻意不拆成两个状态，Dispatcher board 只需要知道「不是 Accepted」。
+  EXPIRED
+}
+
 enum CommissionType {
   PERCENTAGE
   FIXED_AMOUNT
@@ -265,6 +280,7 @@ model Driver {
   walletTransactions WalletTransaction[]
   settlements        Settlement[]
   collections        Collection[]
+  dispatchOffers     DispatchOffer[]
 
   // GPS 上线状态。isOnline 是 Driver 自己按 Go Online/Go Offline 设的旗标；实际显示给 Admin 的
   // presence（是否 Connection Lost / 自动 Offline）由 gps.service.ts 依据 DriverLocation 的
@@ -316,6 +332,11 @@ model CompanySettings {
   gpsUploadIntervalSeconds     Int @default(5) @map("gps_upload_interval_seconds")
   connectionLostTimeoutSeconds Int @default(30) @map("connection_lost_timeout_seconds")
   offlineTimeoutSeconds        Int @default(120) @map("offline_timeout_seconds")
+
+  // Phase 1 Dispatch Engine（docs/design/phase2-gps-dispatch-architecture.md §3.5，简化版）：
+  // 一个全局数字，不是 per-policy 的设定——DispatchPolicy 那一整套是 Future Extension，
+  // Phase 1 刻意只留这一个可调参数。
+  dispatchOfferTimeoutSeconds Int @default(30) @map("dispatch_offer_timeout_seconds")
 
   // Settlement（目前没有任何排程会真的用到这两个栏位——现在的 Daily Settlement 是手动触发，
   // 这两个栏位是给未来「自动排程结算」预留的设定，见已知限制）
@@ -436,9 +457,33 @@ model Leg {
   collections        Collection[]
   bookingCharges     BookingCharge[]
   tripExpenses       TripExpense[]
+  dispatchOffers     DispatchOffer[]
 
   @@unique([bookingId, sequence])
   @@map("legs")
+}
+
+// Phase 1 Dispatch Engine 的 Offer 记录。一次「Send Offer」= 同一个 legId 底下、同一个
+// offeredAt 附近，给每个合格 Driver 各建一笔（没有 round/policyId 这些栏位——那些是 Future
+// Extension，见设计文件 §3.8，Phase 1 不做）。
+model DispatchOffer {
+  id         Int                 @id @default(autoincrement())
+  legId      Int                 @map("leg_id")
+  leg        Leg                 @relation(fields: [legId], references: [id])
+  driverId   Int                 @map("driver_id")
+  driver     Driver              @relation(fields: [driverId], references: [id])
+  status     DispatchOfferStatus @default(PENDING)
+  // 送出当下的距离快照（Ranking Engine 算好的），单纯给 Dispatcher board 显示用，不影响
+  // Accept/Decline 的判断逻辑。没有坐标时是 null。
+  distanceKm Float?              @map("distance_km")
+  offeredAt   DateTime  @default(now()) @map("offered_at")
+  respondedAt DateTime? @map("responded_at")
+  expiresAt   DateTime  @map("expires_at")
+
+  @@index([legId, status])
+  @@index([driverId, status])
+  @@index([status, expiresAt])
+  @@map("dispatch_offers")
 }
 
 // Module 9（Financial Model v2）：Booking Charge 的分类参考资料表，决定 Revenue Rule。

@@ -2,6 +2,7 @@ import { http } from "../../api/http";
 import type {
   BookingDispatchFilter,
   DispatchDriver,
+  DispatchOffer,
   DispatchStatistics,
   DispatchWaitingLeg,
   DriverDispatchFilter,
@@ -33,4 +34,12 @@ export function fetchDispatchStatistics() {
 
 export function fetchSuggestedDrivers(legId: number) {
   return http.get<SuggestedDriversResult>(`/api/admin/dispatch/legs/${legId}/suggested-drivers`);
+}
+
+export function fetchOffersForLeg(legId: number) {
+  return http.get<DispatchOffer[]>(`/api/admin/dispatch/legs/${legId}/offers`);
+}
+
+export function sendOffer(legId: number) {
+  return http.post<DispatchOffer[]>(`/api/admin/dispatch/legs/${legId}/send-offer`);
 }

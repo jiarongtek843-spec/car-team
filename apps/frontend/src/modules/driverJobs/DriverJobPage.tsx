@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Card, Col, Empty, Row, Skeleton, Space, Statistic, Tabs, Tag, Typography } from "antd";
 import { useMyLegsQuery } from "./hooks";
 import { JobCard } from "./components/JobCard";
+import { PendingOffersPanel } from "./components/PendingOffersPanel";
 import { RejectLegModal } from "./components/RejectLegModal";
 import type { DriverLeg } from "./types";
 import { useIsMobile } from "../../common/useIsMobile";
@@ -69,6 +70,8 @@ export function DriverJobPage() {
   return (
     <div style={{ padding: isMobile ? 12 : 24 }}>
       <Typography.Title level={4}>我的工作</Typography.Title>
+
+      <PendingOffersPanel />
 
       {/* Mobile First UI Remediation：Driver Portal 首页要「一眼看到」四件事——
           自己在线还是离线、手上现在有没有工作、下一个工作是什么、今天赚了多少——

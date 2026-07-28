@@ -12,3 +12,11 @@ dispatchRouter.get("/waiting-bookings", asyncHandler(dispatchController.waitingB
 dispatchRouter.get("/drivers", asyncHandler(dispatchController.drivers));
 dispatchRouter.get("/statistics", asyncHandler(dispatchController.statistics));
 dispatchRouter.get("/legs/:legId/suggested-drivers", asyncHandler(dispatchController.suggestedDrivers));
+dispatchRouter.get("/legs/:legId/offers", asyncHandler(dispatchController.offersForLeg));
+// Send Offer 是实际会改变 Leg 派车状态的写入动作，跟既有 Quick Assign（bookings.routes.ts
+// 的 /:id/legs/:legId/assign）用同一个 BOOKING_WRITE 门槛，而不是只要 DISPATCH_READ。
+dispatchRouter.post(
+  "/legs/:legId/send-offer",
+  requirePermission(PERMISSIONS.BOOKING_WRITE),
+  asyncHandler(dispatchController.sendOffer)
+);

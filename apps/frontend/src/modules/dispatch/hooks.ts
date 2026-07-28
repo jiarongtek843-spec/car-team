@@ -46,6 +46,31 @@ export function useSuggestedDriversQuery(legId: number | null) {
 }
 
 /**
+ * Phase 1 Dispatch Engine（简化版）：一笔 Leg 目前的 Offer 名单——送出后的 PENDING 会
+ * 比 5 秒的一般轮询更需要即时性（Driver 可能几秒内就 Accept），改用跟 Driver 端一致的
+ * 3 秒频率。
+ */
+export function useOffersForLegQuery(legId: number | null) {
+  return useQuery({
+    queryKey: ["dispatch", "offers", legId],
+    queryFn: () => dispatchApi.fetchOffersForLeg(legId as number),
+    enabled: legId !== null,
+    refetchInterval: 3000
+  });
+}
+
+export function useSendOfferMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (legId: number) => dispatchApi.sendOffer(legId),
+    onSuccess: (_data, legId) => {
+      queryClient.invalidateQueries({ queryKey: ["dispatch", "offers", legId] });
+      queryClient.invalidateQueries({ queryKey: ["dispatch", "waiting-bookings"] });
+    }
+  });
+}
+
+/**
  * Quick Assign/Reassign 直接复用 Module 1/2 既有的 assignDriver API（bookings/api.ts），
  * 不重新实现指派逻辑——Dispatch Center 只是换一种更快的方式呼叫同一个既有 API。
  */
