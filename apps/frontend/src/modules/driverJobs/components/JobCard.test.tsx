@@ -3,7 +3,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../../../test/renderWithProviders";
 import { JobCard } from "./JobCard";
-import { http } from "../../../api/http";
+import { http, ApiError } from "../../../api/http";
 import type { DriverLeg } from "../types";
 
 vi.mock("../../../api/http", async () => {
@@ -71,5 +71,23 @@ describe("JobCard（Driver 手机接单流程）", () => {
     await userEvent.click(screen.getByRole("button", { name: "确定完成" }));
 
     await waitFor(() => expect(http.post).toHaveBeenCalledWith("/api/driver/legs/1/complete"));
+  });
+
+  it("Bug Fix（UAT：自动派单的完成不了行程）：complete API 失败时不会抛出未处理的例外（之前完全没 catch，失败时整个卡住且没有任何提示）", async () => {
+    const onError = vi.fn();
+    window.addEventListener("unhandledrejection", onError);
+    vi.mocked(http.post).mockRejectedValueOnce(
+      new ApiError(400, "Booking #10273 还没有任何 Charge（尚未设定车资），无法计算司机收入，请先联系管理员补上 Booking 金额后再完成行程")
+    );
+    renderWithProviders(<JobCard leg={makeLeg({ status: "PASSENGER_ON_BOARD" })} onReject={() => {}} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Mark as Completed" }));
+    await userEvent.click(screen.getByRole("button", { name: "确定完成" }));
+
+    await waitFor(() => expect(http.post).toHaveBeenCalledWith("/api/driver/legs/1/complete"));
+    // 给 rejected promise 一个 microtask 的时间被 catch 到，确认没有变成 unhandledrejection。
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onError).not.toHaveBeenCalled();
+    window.removeEventListener("unhandledrejection", onError);
   });
 });

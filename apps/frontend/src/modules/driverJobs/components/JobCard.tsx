@@ -4,6 +4,7 @@ import { useAcceptLegMutation, useCompleteLegMutation, useMarkArrivingMutation, 
 import { LegTypeTag } from "../../bookings/components/StatusTags";
 import { formatDuration, formatEstimatedFinish, formatLegDateTime } from "../../../lib/schedule";
 import { formatCents } from "../../../lib/money";
+import { ApiError } from "../../../api/http";
 
 const WALLET_STATUS_LABEL: Record<LegWalletStatus, string> = {
   PENDING: "待结算",
@@ -92,8 +93,12 @@ export function JobCard({ leg, onReject }: { leg: DriverLeg; onReject: (legId: n
                 type="primary"
                 loading={accept.isPending}
                 onClick={async () => {
-                  await accept.mutateAsync(leg.id);
-                  message.success("已接受工作");
+                  try {
+                    await accept.mutateAsync(leg.id);
+                    message.success("已接受工作");
+                  } catch (err) {
+                    message.error(err instanceof ApiError ? err.message : "操作失败，请重试");
+                  }
                 }}
               >
                 Accept
@@ -108,8 +113,12 @@ export function JobCard({ leg, onReject }: { leg: DriverLeg; onReject: (legId: n
               type="primary"
               loading={markArriving.isPending}
               onClick={async () => {
-                await markArriving.mutateAsync(leg.id);
-                message.success("已标记前往中");
+                try {
+                  await markArriving.mutateAsync(leg.id);
+                  message.success("已标记前往中");
+                } catch (err) {
+                  message.error(err instanceof ApiError ? err.message : "操作失败，请重试");
+                }
               }}
             >
               Driver Arriving
@@ -120,8 +129,12 @@ export function JobCard({ leg, onReject }: { leg: DriverLeg; onReject: (legId: n
               type="primary"
               loading={markOnBoard.isPending}
               onClick={async () => {
-                await markOnBoard.mutateAsync(leg.id);
-                message.success("已标记乘客上车");
+                try {
+                  await markOnBoard.mutateAsync(leg.id);
+                  message.success("已标记乘客上车");
+                } catch (err) {
+                  message.error(err instanceof ApiError ? err.message : "操作失败，请重试");
+                }
               }}
             >
               Passenger On Board
@@ -134,8 +147,12 @@ export function JobCard({ leg, onReject }: { leg: DriverLeg; onReject: (legId: n
               okText="确定完成"
               cancelText="再等等"
               onConfirm={async () => {
-                await complete.mutateAsync(leg.id);
-                message.success("工作已完成");
+                try {
+                  await complete.mutateAsync(leg.id);
+                  message.success("工作已完成");
+                } catch (err) {
+                  message.error(err instanceof ApiError ? err.message : "操作失败，请重试");
+                }
               }}
             >
               <Button type="primary" loading={complete.isPending}>
