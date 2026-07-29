@@ -292,6 +292,7 @@ model Driver {
 
   activityLogsAsActor  ActivityLog[] @relation("ActivityLogActorDriver")
   activityLogsAsSubject ActivityLog[] @relation("ActivityLogSubjectDriver")
+  notifications         Notification[]
 
   @@map("drivers")
 }
@@ -412,6 +413,7 @@ model Booking {
   charges            BookingCharge[]
   tripExpenses       TripExpense[]
   revenueSnapshot    RevenueSharingSnapshot?
+  notifications      Notification[]
 
   @@index([financialStatus])
   @@index([financialVersion])
@@ -907,8 +909,61 @@ model ActivityLog {
 
   createdAt DateTime @default(now()) @map("created_at")
 
+  notifications Notification[]
+
   @@index([entityType, entityId])
   @@index([module, createdAt])
   @@index([subjectDriverId, createdAt])
   @@map("activity_logs")
+}
+
+enum NotificationAudience {
+  DRIVER
+  DISPATCHER
+  ADMIN
+}
+
+// Notification Center（2026-07）：Notification 一律由 activityLog.service.ts 的
+// createActivity() 内部触发的 Subscriber（notification.service.ts 的 handleActivity）自动
+// 产生——业务模块（Wallet/GPS/Dispatch/...）永远只呼叫 createActivity()，不会、也不能直接
+// 建立 Notification（notification.service.ts 没有对外汇出任何给「模块」呼叫的 create 函式，
+// 只有内部 Subscriber 用的路径）。CRUD API 里唯一的手动建立入口（POST /api/notifications）
+// 是给「人」用的（例如 Owner 发系统公告），跟业务模块自动产生的事件是两回事。
+//
+// audience 三选一：
+//   DRIVER —— driverId 一定要有值，只有那个司机自己看得到、能标记已读；
+//   DISPATCHER / ADMIN —— driverId 是 null，广播给所有拥有对应 Permission 的帐号共享同一份
+//     已读状态（Phase 1 刻意不做「每个人各自的已读状态」，真的需要时再加一张
+//     NotificationRecipient junction table，不需要动这个 model）。
+//
+// type 沿用跟 ActivityLog.activityType 一样的「纯字串」精神：不用 enum，新事件类型不需要
+// 重新 migration。
+model Notification {
+  id       Int                  @id @default(autoincrement())
+  audience NotificationAudience
+  driverId Int?                 @map("driver_id")
+  driver   Driver?              @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  type    String
+  title   String
+  message String
+
+  isRead Boolean   @default(false) @map("is_read")
+  readAt DateTime? @map("read_at")
+
+  relatedBookingId Int?     @map("related_booking_id")
+  relatedBooking   Booking? @relation(fields: [relatedBookingId], references: [id], onDelete: SetNull)
+  relatedUrl       String?  @map("related_url")
+
+  // 产生这笔 Notification 的 ActivityLog 事件，方便追溯；手动建立（POST /api/notifications）
+  // 的公告类 Notification 没有对应的 Activity，这里就是 null。
+  sourceActivityId Int?         @map("source_activity_id")
+  sourceActivity   ActivityLog? @relation(fields: [sourceActivityId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([driverId, isRead, createdAt])
+  @@index([audience, isRead, createdAt])
+  @@index([relatedBookingId])
+  @@map("notifications")
 }

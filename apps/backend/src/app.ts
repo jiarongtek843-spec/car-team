@@ -19,6 +19,8 @@ import { driverPresenceRouter } from "./modules/gps/driverPresence.routes.js";
 import { dispatchRouter } from "./modules/dispatch/dispatch.routes.js";
 import { bookingChargeRouter } from "./modules/bookingCharges/bookingCharge.routes.js";
 import { revenueSharingRouter } from "./modules/revenueSharing/revenueSharing.routes.js";
+import { notificationRouter } from "./modules/notifications/notification.routes.js";
+import { driverNotificationRouter } from "./modules/notifications/driverNotification.routes.js";
 import { errorHandler } from "./common/errorHandler.js";
 import { requireAuth } from "./modules/auth/auth.middleware.js";
 import { asyncHandler } from "./common/asyncHandler.js";
@@ -71,5 +73,7 @@ app.use("/api/driver/presence", driverPresenceRouter);
 app.use("/api/admin/dispatch", dispatchRouter);
 app.use("/api/admin/booking-charges", bookingChargeRouter);
 app.use("/api/admin/revenue-sharing", revenueSharingRouter);
+app.use("/api/notifications", notificationRouter);
+app.use("/api/driver/notifications", driverNotificationRouter);
 
 app.use(errorHandler);

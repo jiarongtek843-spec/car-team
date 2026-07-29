@@ -56,7 +56,12 @@ export const PERMISSIONS = {
   DRIVER_WALLET_SELF: "driverWallet:self",
   DRIVER_COLLECTION_SELF: "driverCollection:self",
   DRIVER_PRESENCE_SELF: "driverPresence:self",
-  DRIVER_SETTLEMENT_SELF: "driverSettlement:self"
+  DRIVER_SETTLEMENT_SELF: "driverSettlement:self",
+  // Notification Center：write 只用在 POST /api/notifications 这个「人手动发公告」的入口——
+  // 自动从 Activity Log 产生的 Notification 不经过 RBAC（是 Server 内部的 Subscriber）。
+  NOTIFICATION_READ: "notification:read",
+  NOTIFICATION_WRITE: "notification:write",
+  DRIVER_NOTIFICATION_SELF: "driverNotification:self"
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -81,7 +86,9 @@ const ADMIN_SIDE_PERMISSIONS: PermissionKey[] = [
   PERMISSIONS.BOOKING_CHARGE_VOID,
   PERMISSIONS.REVENUE_SHARING_READ,
   PERMISSIONS.REVENUE_SHARING_PREVIEW,
-  PERMISSIONS.REVENUE_SHARING_FINALIZE
+  PERMISSIONS.REVENUE_SHARING_FINALIZE,
+  PERMISSIONS.NOTIFICATION_READ,
+  PERMISSIONS.NOTIFICATION_WRITE
 ];
 
 /**
@@ -106,7 +113,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]> = {
     PERMISSIONS.BOOKING_CHARGE_WRITE,
     // Revenue Sharing 对 Dispatcher 是 View Only——连 Preview 都不给，避免误触发看起来
     // 像是自己能计算/操作分润。
-    PERMISSIONS.REVENUE_SHARING_READ
+    PERMISSIONS.REVENUE_SHARING_READ,
+    // Dispatcher 能看自己那份 Notification（DISPATCHER audience），但不能手动发公告
+    // （NOTIFICATION_WRITE 只给 OWNER/MANAGER）。
+    PERMISSIONS.NOTIFICATION_READ
   ],
   DRIVER: [
     PERMISSIONS.DRIVER_JOBS_SELF,
@@ -114,7 +124,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]> = {
     PERMISSIONS.DRIVER_COLLECTION_SELF,
     PERMISSIONS.DRIVER_PRESENCE_SELF,
     PERMISSIONS.DRIVER_SETTLEMENT_SELF,
-    PERMISSIONS.COMPANY_SETTINGS_READ
+    PERMISSIONS.COMPANY_SETTINGS_READ,
+    PERMISSIONS.DRIVER_NOTIFICATION_SELF
   ]
 };
 

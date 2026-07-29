@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { ActivityLog, Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 
 /**
@@ -10,7 +10,27 @@ import { prisma } from "../../config/prisma.js";
  * 这一版刻意只做「写」，不做「读」：还没有任何 Consumer（Notification Center 尚未开工），
  * 现在先设计查询介面只会是纯猜测。等真的要接 Notification Center 时，用哪些栏位查、要不要
  * 分页/已读状态，届时才会明朗。
+ *
+ * Subscriber 机制（Notification Center 起）：createActivity() 写完 ActivityLog 之后，会照
+ * 顺序呼叫每一个透过 subscribeToActivity() 注册的 Listener，并把同一个 Prisma Client/
+ * TransactionClient 传进去——如果呼叫端是在 $transaction 里面 createActivity()，Listener
+ * 写的东西（例如 Notification）就跟这笔 ActivityLog 在同一个 Transaction 里 Commit，不会有
+ * 「Activity 写进去了但 Notification 没跟上」这种不一致。这里刻意不做任何 Message Queue/
+ * 非同步机制——这个专案的规模跟即时性需求都用不到，同步呼叫更简单也更好推理。
+ *
+ * 依赖方向：这个档案完全不 import notification 模组——是 notification.service.ts 在自己
+ * 的档案里呼叫 subscribeToActivity() 来注册，Activity Log 本身维持通用、不知道有谁在听。
  */
+type ActivityListener = (
+  activity: ActivityLog,
+  client: Prisma.TransactionClient | typeof prisma
+) => Promise<void> | void;
+
+const listeners: ActivityListener[] = [];
+
+export function subscribeToActivity(listener: ActivityListener) {
+  listeners.push(listener);
+}
 
 /** 谁触发了这个事件。省略代表系统自动触发（例如自动分润、GPS 自动判定离线）。 */
 export interface ActivityActor {
@@ -41,11 +61,11 @@ function toJsonSafe(value: unknown): Prisma.InputJsonValue | undefined {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-export function createActivity(
+export async function createActivity(
   input: CreateActivityInput,
   client: Prisma.TransactionClient | typeof prisma = prisma
 ) {
-  return client.activityLog.create({
+  const activity = await client.activityLog.create({
     data: {
       module: input.module,
       activityType: input.activityType,
@@ -58,4 +78,10 @@ export function createActivity(
       metadata: toJsonSafe(input.metadata)
     }
   });
+
+  for (const listener of listeners) {
+    await listener(activity, client);
+  }
+
+  return activity;
 }
