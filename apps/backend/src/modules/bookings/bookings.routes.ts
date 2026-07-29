@@ -12,6 +12,11 @@ bookingsRouter.use(requireAuth);
 bookingsRouter.get("/", requirePermission(PERMISSIONS.BOOKING_READ), asyncHandler(bookingsController.list));
 bookingsRouter.post("/", requirePermission(PERMISSIONS.BOOKING_WRITE), asyncHandler(bookingsController.create));
 bookingsRouter.get("/:id", requirePermission(PERMISSIONS.BOOKING_READ), asyncHandler(bookingsController.getOne));
+bookingsRouter.get(
+  "/:id/timeline",
+  requirePermission(PERMISSIONS.BOOKING_READ),
+  asyncHandler(bookingsController.getTimeline)
+);
 bookingsRouter.patch("/:id", requirePermission(PERMISSIONS.BOOKING_WRITE), asyncHandler(bookingsController.update));
 bookingsRouter.post(
   "/:id/cancel",

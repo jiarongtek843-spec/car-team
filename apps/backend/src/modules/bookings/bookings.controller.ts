@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { parseIdParam } from "../../common/params.js";
 import * as bookingsService from "./bookings.service.js";
+import * as bookingTimelineService from "./bookingTimeline.service.js";
 import { actorFromRequest } from "../../common/audit.js";
 
 const bookingStatusSchema = z.enum(["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"]);
@@ -74,4 +75,10 @@ export async function cancel(req: Request, res: Response) {
   const id = parseIdParam(req.params.id);
   const booking = await bookingsService.cancelBooking(id);
   res.json(booking);
+}
+
+export async function getTimeline(req: Request, res: Response) {
+  const id = parseIdParam(req.params.id);
+  const timeline = await bookingTimelineService.getBookingTimeline(id);
+  res.json(timeline);
 }

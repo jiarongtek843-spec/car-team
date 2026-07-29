@@ -5,7 +5,8 @@ import type { ListBookingsParams } from "./api";
 
 export const bookingKeys = {
   list: (params: ListBookingsParams) => ["bookings", "list", params] as const,
-  detail: (id: number) => ["bookings", "detail", id] as const
+  detail: (id: number) => ["bookings", "detail", id] as const,
+  timeline: (id: number) => ["bookings", "timeline", id] as const
 };
 
 export function useBookingsQuery(params: ListBookingsParams) {
@@ -19,6 +20,14 @@ export function useBookingQuery(id: number) {
   return useQuery({
     queryKey: bookingKeys.detail(id),
     queryFn: () => bookingsApi.fetchBooking(id),
+    enabled: Number.isInteger(id)
+  });
+}
+
+export function useBookingTimelineQuery(id: number) {
+  return useQuery({
+    queryKey: bookingKeys.timeline(id),
+    queryFn: () => bookingsApi.fetchBookingTimeline(id),
     enabled: Number.isInteger(id)
   });
 }

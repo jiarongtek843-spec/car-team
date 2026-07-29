@@ -5,6 +5,7 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 import { useBookingQuery, useCancelBookingMutation } from "./hooks";
 import { BookingStatusTag } from "./components/StatusTags";
 import { LegList } from "./components/LegList";
+import { BookingTimelineCard } from "./components/BookingTimelineCard";
 import { AddLegModal } from "./components/AddLegModal";
 import { EditBookingModal } from "./components/EditBookingModal";
 import { formatCents } from "../../lib/money";
@@ -96,6 +97,8 @@ export function BookingDetailPage() {
           </Descriptions.Item>
         </Descriptions>
       </Card>
+
+      <BookingTimelineCard bookingId={booking.id} />
 
       <Card
         title="行程 Leg"

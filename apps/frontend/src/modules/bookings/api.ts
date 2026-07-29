@@ -9,6 +9,7 @@ import type {
   UpdateBookingInput,
   UpdateLegInput
 } from "../../types/booking";
+import type { BookingTimeline } from "./timelineTypes";
 
 export interface ListBookingsParams {
   status?: BookingStatus;
@@ -34,6 +35,10 @@ export function fetchBookings(params: ListBookingsParams) {
 
 export function fetchBooking(id: number) {
   return http.get<Booking>(`/api/bookings/${id}`);
+}
+
+export function fetchBookingTimeline(id: number) {
+  return http.get<BookingTimeline>(`/api/bookings/${id}/timeline`);
 }
 
 export function createBooking(input: CreateBookingInput) {
