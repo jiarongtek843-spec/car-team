@@ -3,7 +3,6 @@ import { prisma } from "../../config/prisma.js";
 import * as bookingsService from "./bookings.service.js";
 import * as legsService from "./legs.service.js";
 import * as driverJobsService from "../driverJobs/driverJobs.service.js";
-import * as dispatchOfferService from "../dispatch/dispatchOffer.service.js";
 import { getBookingTimeline } from "./bookingTimeline.service.js";
 import { NotFoundError } from "../../common/errors.js";
 import type { AuditActor } from "../../common/audit.js";
@@ -82,6 +81,11 @@ describe("Booking Timeline：事件推导", () => {
   });
 
   it("Dispatch Offer 路径：Offer Sent 只出现一次（去重同一批），且在 Driver Accepted 之前", async () => {
+    // 刻意不走 dispatchOfferService.sendOffer()——那会读全域「目前在线的 Driver」名单
+    // （Eligibility Engine），跟同时在跑的 dispatchOffer.integration.test.ts 共用同一个
+    // 开发库会互相干扰（各自建的在线 Driver 会被对方的 sendOffer 看到）。这里要测的只是
+    // Timeline 怎么把「同一批 DispatchOffer」去重成一个事件，不是 Eligibility 本身
+    // （eligibility.test.ts 已经测过），所以直接建 DispatchOffer row 更精准也更稳定。
     const driverA = await createTestDriver("Offer Driver A");
     const driverB = await createTestDriver("Offer Driver B");
     driverIds.push(driverA.id, driverB.id);
@@ -92,14 +96,16 @@ describe("Booking Timeline：事件推导", () => {
     bookingIds.push(booking.id);
     const legId = booking.legs[0].id;
 
-    await prisma.driver.update({ where: { id: driverA.id }, data: { isOnline: true, onlineSince: new Date() } });
-    await prisma.driver.update({ where: { id: driverB.id }, data: { isOnline: true, onlineSince: new Date() } });
+    const offeredAt = new Date();
+    const expiresAt = new Date(offeredAt.getTime() + 60_000);
+    await prisma.dispatchOffer.createMany({
+      data: [
+        { legId, driverId: driverA.id, offeredAt, expiresAt },
+        { legId, driverId: driverB.id, offeredAt, expiresAt }
+      ]
+    });
 
-    const offers = await dispatchOfferService.sendOffer(legId, systemActor);
-    const myOffer = offers.find((o) => o.driverId === driverA.id);
-    if (!myOffer) throw new Error("expected an offer for driverA");
-
-    await dispatchOfferService.acceptOffer(driverA.id, myOffer.id);
+    await legsService.assignDriver(booking.id, legId, driverA.id);
     await driverJobsService.acceptLeg(driverA.id, legId);
 
     const timeline = await getBookingTimeline(booking.id);

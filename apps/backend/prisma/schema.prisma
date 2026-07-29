@@ -243,6 +243,7 @@ model User {
   updatedAt    DateTime   @updatedAt @map("updated_at")
   driver       Driver?
   auditLogs    AuditLog[]
+  activityLogsAsActor ActivityLog[] @relation("ActivityLogActorUser")
 
   walletTransactionsCreated WalletTransaction[] @relation("WalletTransactionCreatedBy")
   settlementsCreated        Settlement[]        @relation("SettlementCreatedBy")
@@ -288,6 +289,9 @@ model Driver {
   isOnline    Boolean         @default(false) @map("is_online")
   onlineSince DateTime?       @map("online_since")
   location    DriverLocation?
+
+  activityLogsAsActor  ActivityLog[] @relation("ActivityLogActorDriver")
+  activityLogsAsSubject ActivityLog[] @relation("ActivityLogSubjectDriver")
 
   @@map("drivers")
 }
@@ -864,4 +868,47 @@ model AuditLog {
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@map("audit_logs")
+}
+
+// Activity Log（2026-07，标准化基础设施）：给未来的 Notification Center 以及 Wallet/GPS/
+// Dispatch/Settlement/Finance/Admin 等模块共用的「事件流水」，跟 AuditLog 是两回事——
+// AuditLog 是给「查是谁改了什么」用的合规纪录（着重 beforeData/afterData 快照）；ActivityLog
+// 是给「这里发生了一件事，未来可能要通知谁」用的，着重一句人看得懂的 summary + 让 Notification
+// Center 之后能过滤/分派的 module、entityType/entityId、subjectDriverId。
+//
+// module/activityType/entityType 刻意都用纯字串、不用 enum：新模块要开始写 Activity 完全是
+// 资料操作，不需要为了新增一种事件类型又跑一次 schema migration（跟 AuditLog.action、
+// RolePermission.permissionKey 是同一个理由）。
+//
+// actorUserId/actorDriverId 两个都是 null 代表系统自动触发（例如 Wallet 自动分润、GPS 自动
+// 判定离线）；理论上一笔 Activity 只会有其中一个非 null（人是登入 User 或是司机本人二选一），
+// 这里不用 DB 层 CHECK 特别强制，因为强制也只是防呆、不是任何业务规则会依赖的不变量。
+//
+// subjectDriverId 是「这件事跟哪个司机有关」，不等于 actorDriverId——例如 Dispatcher（User）
+// 帮某个司机 Send Offer，actor 是 Dispatcher 这个 User，subject 是收到 Offer 的司机，未来
+// Notification Center 要用 subjectDriverId 决定「这则通知要推给哪个司机」。
+model ActivityLog {
+  id            Int      @id @default(autoincrement())
+  module        String
+  activityType  String   @map("activity_type")
+  entityType    String   @map("entity_type")
+  entityId      Int      @map("entity_id")
+
+  actorUserId   Int?    @map("actor_user_id")
+  actorUser     User?   @relation("ActivityLogActorUser", fields: [actorUserId], references: [id])
+  actorDriverId Int?    @map("actor_driver_id")
+  actorDriver   Driver? @relation("ActivityLogActorDriver", fields: [actorDriverId], references: [id])
+
+  subjectDriverId Int?    @map("subject_driver_id")
+  subjectDriver   Driver? @relation("ActivityLogSubjectDriver", fields: [subjectDriverId], references: [id])
+
+  summary  String
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([module, createdAt])
+  @@index([subjectDriverId, createdAt])
+  @@map("activity_logs")
 }
