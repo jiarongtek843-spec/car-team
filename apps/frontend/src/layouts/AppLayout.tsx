@@ -5,6 +5,7 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../modules/auth/AuthContext";
 import { PERMISSIONS, type PermissionKey } from "../common/permissions";
 import { useIsMobile } from "../common/useIsMobile";
+import { AdminNotificationBell } from "../modules/notifications/components/AdminNotificationBell";
 
 const { Header, Content } = Layout;
 
@@ -67,6 +68,7 @@ export function AppLayout() {
           <>
             <Menu theme="dark" mode="horizontal" selectedKeys={[selectedKey]} items={visibleNavItems} style={{ flex: 1 }} />
             <Space>
+              <AdminNotificationBell />
               <Typography.Text style={{ color: "#fff" }}>{user?.username}</Typography.Text>
               <a style={{ color: "#fff" }} onClick={handleLogout}>
                 登出
@@ -74,6 +76,7 @@ export function AppLayout() {
             </Space>
           </>
         )}
+        {isMobile && <AdminNotificationBell />}
       </Header>
       <Content>
         <Outlet />

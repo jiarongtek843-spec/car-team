@@ -5,6 +5,7 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../modules/auth/AuthContext";
 import { MyPresenceBadge } from "../modules/gps/components/MyPresenceBadge";
 import { useIsMobile } from "../common/useIsMobile";
+import { DriverNotificationBell } from "../modules/notifications/components/DriverNotificationBell";
 
 const { Header, Content } = Layout;
 
@@ -50,6 +51,7 @@ export function DriverLayout() {
             <Menu theme="dark" mode="horizontal" selectedKeys={[location.pathname]} items={NAV_ITEMS} style={{ flex: 1 }} />
             <Space size="large">
               <MyPresenceBadge />
+              <DriverNotificationBell />
               <Typography.Text style={{ color: "#fff" }}>{user?.driver?.name ?? user?.username}</Typography.Text>
               <a style={{ color: "#fff" }} onClick={handleLogout}>
                 登出
@@ -58,9 +60,10 @@ export function DriverLayout() {
           </>
         )}
         {isMobile && (
-          <div style={{ marginLeft: "auto" }}>
+          <Space style={{ marginLeft: "auto" }}>
             <MyPresenceBadge />
-          </div>
+            <DriverNotificationBell />
+          </Space>
         )}
       </Header>
       <Content>

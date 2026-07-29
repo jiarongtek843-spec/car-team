@@ -30,7 +30,10 @@ export const PERMISSIONS = {
   DRIVER_WALLET_SELF: "driverWallet:self",
   DRIVER_COLLECTION_SELF: "driverCollection:self",
   DRIVER_PRESENCE_SELF: "driverPresence:self",
-  DRIVER_SETTLEMENT_SELF: "driverSettlement:self"
+  DRIVER_SETTLEMENT_SELF: "driverSettlement:self",
+  NOTIFICATION_READ: "notification:read",
+  NOTIFICATION_WRITE: "notification:write",
+  DRIVER_NOTIFICATION_SELF: "driverNotification:self"
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
