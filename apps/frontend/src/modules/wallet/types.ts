@@ -13,7 +13,7 @@ export interface WalletTransaction {
   bookingId: number | null;
   booking: { id: number; girlName: string } | null;
   legId: number | null;
-  leg: { id: number; sequence: number } | null;
+  leg: { id: number; sequence: number; pickupLocation: string | null; dropoffLocation: string | null; completedAt: string | null } | null;
   transactionType: WalletTransactionType;
   amountCents: number;
   description: string | null;

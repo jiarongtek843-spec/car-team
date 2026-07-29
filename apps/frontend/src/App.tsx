@@ -13,6 +13,7 @@ import { AdminWalletPage } from "./modules/wallet/AdminWalletPage";
 import { DailySettlementPage } from "./modules/settlement/DailySettlementPage";
 import { SettlementHistoryPage } from "./modules/settlement/SettlementHistoryPage";
 import { MyEarningsPage } from "./modules/driverWallet/MyEarningsPage";
+import { WalletHistoryPage } from "./modules/driverWallet/WalletHistoryPage";
 import { DriverSettlementHistoryPage } from "./modules/driverWallet/DriverSettlementHistoryPage";
 import { AdminCollectionPage } from "./modules/collections/AdminCollectionPage";
 import { DriverCollectionPage } from "./modules/collections/DriverCollectionPage";
@@ -136,6 +137,14 @@ function App() {
           element={
             <RequirePermission permission={PERMISSIONS.DRIVER_WALLET_SELF}>
               <MyEarningsPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/driver/wallet-history"
+          element={
+            <RequirePermission permission={PERMISSIONS.DRIVER_WALLET_SELF}>
+              <WalletHistoryPage />
             </RequirePermission>
           }
         />

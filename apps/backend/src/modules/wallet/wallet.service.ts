@@ -146,7 +146,10 @@ export async function getDriverWalletSummary(driverId: number) {
 
 export const transactionDetailInclude = {
   booking: { select: { id: true, girlName: true } },
-  leg: { select: { id: true, sequence: true } },
+  // Driver Wallet Transaction History（standalone feature）需要 Pickup/Destination/
+  // 完成时间才能在列表直接显示，不用为了这三个欄位另外查一次 Booking/Leg——
+  // 沿用既有的 transactionDetailInclude，Admin 端的用法完全不受影响（多几个欄位而已）。
+  leg: { select: { id: true, sequence: true, pickupLocation: true, dropoffLocation: true, completedAt: true } },
   settlement: { select: { id: true, reference: true } },
   relatedSettlement: { select: { id: true, reference: true } },
   driver: { select: { id: true, name: true } }
