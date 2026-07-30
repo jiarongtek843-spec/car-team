@@ -1,8 +1,13 @@
 import { http } from "../../api/http";
-import type { DriverPresence } from "./types";
+import type { DriverLocationEntry, DriverPresence } from "./types";
 
 export function fetchDriverPresenceList(onlineOnly = true) {
   return http.get<DriverPresence[]>(`/api/admin/gps/drivers?onlineOnly=${onlineOnly}`);
+}
+
+/** GPS Foundation：Live Dispatch Map 用来画 Driver Marker 的座标来源。 */
+export function fetchDriverLocations() {
+  return http.get<DriverLocationEntry[]>("/api/admin/gps/locations");
 }
 
 export function fetchDriverPresence(driverId: number) {

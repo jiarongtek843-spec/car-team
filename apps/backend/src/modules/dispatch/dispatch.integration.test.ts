@@ -447,4 +447,27 @@ describe("Dispatch Center aggregation (Module 6 scenarios)", () => {
       expect(result.suggestions.every((s) => s.distanceKm === null)).toBe(true);
     });
   });
+
+  describe("Live Dispatch Map: listWaitingBookings exposes pickup coordinates", () => {
+    it("includes pickupLatitude/pickupLongitude when the leg has them, and null when it doesn't", async () => {
+      const withCoords = await bookingsService.createBooking({
+        girlName: "MapPickupCoordsTest",
+        totalAmountCents: 0,
+        legs: [{ pickupLocation: "KLCC", pickupLatitude: 3.1579, pickupLongitude: 101.7116 }]
+      });
+      const withoutCoords = await bookingsService.createBooking({
+        girlName: "MapNoPickupCoordsTest",
+        totalAmountCents: 0,
+        legs: [{ pickupLocation: "Somewhere" }]
+      });
+      bookingIds.push(withCoords.id, withoutCoords.id);
+
+      const results = await dispatchService.listWaitingBookings({});
+      const withCoordsEntry = results.find((r) => r.bookingId === withCoords.id);
+      const withoutCoordsEntry = results.find((r) => r.bookingId === withoutCoords.id);
+
+      expect(withCoordsEntry).toMatchObject({ pickupLatitude: 3.1579, pickupLongitude: 101.7116 });
+      expect(withoutCoordsEntry).toMatchObject({ pickupLatitude: null, pickupLongitude: null });
+    });
+  });
 });

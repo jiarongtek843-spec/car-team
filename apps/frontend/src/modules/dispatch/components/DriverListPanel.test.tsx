@@ -31,6 +31,8 @@ const selectedLeg: DispatchWaitingLeg = {
   legType: "OUTBOUND",
   pickupLocation: "A",
   dropoffLocation: "B",
+  pickupLatitude: null,
+  pickupLongitude: null,
   scheduledAt: null,
   completedAt: null,
   bookingCreatedAt: new Date().toISOString(),

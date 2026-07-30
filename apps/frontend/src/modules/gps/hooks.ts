@@ -20,6 +20,15 @@ export function useDriverPresenceQuery(driverId: number | undefined) {
   });
 }
 
+/** GPS Foundation：Live Dispatch Map 用，跟其他 Dispatch/GPS 画面同一个 5 秒轮询节奏。 */
+export function useDriverLocationsQuery() {
+  return useQuery({
+    queryKey: ["gps", "locations"],
+    queryFn: gpsApi.fetchDriverLocations,
+    refetchInterval: POLL_INTERVAL_MS
+  });
+}
+
 export function useMyPresenceQuery() {
   return useQuery({
     queryKey: ["gps", "my-presence"],

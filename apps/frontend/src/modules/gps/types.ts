@@ -70,3 +70,14 @@ export const PRESENCE_STATUS_DOT: Record<DriverPresenceStatus, string> = {
   COMPLETED: "🟢",
   BREAK: "⚪"
 };
+
+/** GPS Foundation：Admin Get Driver Locations API 的回传形状——只有 latest location，
+ * 只列出目前仍在报点状态（AVAILABLE/PENDING_OFFER/ACCEPTED_JOB/ON_TRIP）的 Driver。 */
+export interface DriverLocationEntry {
+  driverId: number;
+  driverName: string;
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  updatedAt: string;
+}

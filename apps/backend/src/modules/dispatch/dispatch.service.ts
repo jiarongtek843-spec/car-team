@@ -120,6 +120,10 @@ export async function listWaitingBookings({ filter, search, date }: ListWaitingB
     legType: leg.legType,
     pickupLocation: leg.pickupLocation,
     dropoffLocation: leg.dropoffLocation,
+    // Live Dispatch Map：这两个栏位本来就已经跟着 leg 一起查出来了，这里只是把既有资料
+    // 多带出去，不是新查询——地图用它来画 Booking Pickup Marker（缺座标就不画）。
+    pickupLatitude: leg.pickupLatitude,
+    pickupLongitude: leg.pickupLongitude,
     scheduledAt: leg.scheduledAt,
     completedAt: leg.completedAt,
     bookingCreatedAt: leg.booking.createdAt,

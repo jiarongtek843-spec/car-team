@@ -11,6 +11,7 @@ const { Header, Content } = Layout;
 
 const NAV_ITEMS: { key: string; label: ReactNode; permission: PermissionKey }[] = [
   { key: "/dispatch", label: <Link to="/dispatch">Dispatch Center</Link>, permission: PERMISSIONS.DISPATCH_READ },
+  { key: "/dispatch/map", label: <Link to="/dispatch/map">Live Map</Link>, permission: PERMISSIONS.DISPATCH_READ },
   { key: "/", label: <Link to="/">Booking</Link>, permission: PERMISSIONS.BOOKING_READ },
   { key: "/drivers", label: <Link to="/drivers">Driver</Link>, permission: PERMISSIONS.DRIVER_READ },
   { key: "/wallet", label: <Link to="/wallet">Wallet</Link>, permission: PERMISSIONS.WALLET_READ },

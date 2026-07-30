@@ -14,6 +14,8 @@ export interface DispatchWaitingLeg {
   legType: LegType;
   pickupLocation: string | null;
   dropoffLocation: string | null;
+  pickupLatitude: number | null;
+  pickupLongitude: number | null;
   scheduledAt: string | null;
   completedAt: string | null;
   bookingCreatedAt: string;
@@ -117,3 +119,28 @@ export const OFFER_STATUS_COLOR: Record<DispatchOfferStatus, string> = {
   DECLINED: "default",
   EXPIRED: "default"
 };
+
+/**
+ * Driver Matching Engine（NOT Auto Assignment）：`status` 目前一定是 "AVAILABLE"——
+ * 后端 matchDriversForBooking 只回传 Driver Presence 状态是 AVAILABLE 的候选人，
+ * 型别上仍然写成字面量而不是硬编字串，方便未来后端真的多回几种状态时一眼看出要改哪里。
+ */
+export interface MatchedDriverCandidate {
+  rank: number;
+  driverId: number;
+  driverName: string;
+  vehiclePlateNumber: string | null;
+  distanceKm: number | null;
+  status: "AVAILABLE";
+  currentBooking: { id: number; girlName: string } | null;
+  lastGpsUpdateAt: string | null;
+}
+
+export interface MatchingResult {
+  bookingId: number;
+  legId: number | null;
+  pickupLocation: string | null;
+  pickupLatitude: number | null;
+  pickupLongitude: number | null;
+  candidates: MatchedDriverCandidate[];
+}

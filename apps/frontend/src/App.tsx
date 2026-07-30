@@ -19,6 +19,7 @@ import { AdminCollectionPage } from "./modules/collections/AdminCollectionPage";
 import { DriverCollectionPage } from "./modules/collections/DriverCollectionPage";
 import { AdminGpsDashboardPage } from "./modules/gps/AdminGpsDashboardPage";
 import { DispatchCenterPage } from "./modules/dispatch/DispatchCenterPage";
+import { LiveDispatchMapPage } from "./modules/liveMap/LiveDispatchMapPage";
 import { CompanySettingsPage } from "./modules/companySettings/CompanySettingsPage";
 import { PERMISSIONS } from "./common/permissions";
 
@@ -55,6 +56,14 @@ function App() {
           element={
             <RequirePermission permission={PERMISSIONS.BOOKING_READ}>
               <BookingDetailPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/dispatch/map"
+          element={
+            <RequirePermission permission={PERMISSIONS.DISPATCH_READ}>
+              <LiveDispatchMapPage />
             </RequirePermission>
           }
         />

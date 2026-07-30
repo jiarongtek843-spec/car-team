@@ -6,6 +6,7 @@ import type {
   DispatchStatistics,
   DispatchWaitingLeg,
   DriverDispatchFilter,
+  MatchingResult,
   SuggestedDriversResult
 } from "./types";
 
@@ -42,4 +43,9 @@ export function fetchOffersForLeg(legId: number) {
 
 export function sendOffer(legId: number) {
   return http.post<DispatchOffer[]>(`/api/admin/dispatch/legs/${legId}/send-offer`);
+}
+
+/** Driver Matching Engine（NOT Auto Assignment）：Live Dispatch Map 点选 Booking Marker 用。 */
+export function fetchMatching(bookingId: number) {
+  return http.get<MatchingResult>(`/api/admin/dispatch/matching/${bookingId}`);
 }

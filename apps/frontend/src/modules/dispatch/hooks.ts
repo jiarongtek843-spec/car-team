@@ -59,6 +59,20 @@ export function useOffersForLegQuery(legId: number | null) {
   });
 }
 
+/**
+ * Live Dispatch Map：点选一个 Booking Pickup Marker 才查，纯粹重用既有的 Driver Matching
+ * Engine 端点，不重新实现排序/筛选逻辑。跟 Suggested Drivers 用同一个 5 秒轮询节奏，
+ * 因为地图开着的时候候选名单（Driver 位置/状态）本身也会一直变动。
+ */
+export function useMatchingQuery(bookingId: number | null) {
+  return useQuery({
+    queryKey: ["dispatch", "matching", bookingId],
+    queryFn: () => dispatchApi.fetchMatching(bookingId as number),
+    enabled: bookingId !== null,
+    refetchInterval: POLL_INTERVAL_MS
+  });
+}
+
 export function useSendOfferMutation() {
   const queryClient = useQueryClient();
   return useMutation({

@@ -79,6 +79,18 @@ Online/Offline Driver 这两个数字刻意直接读 `Driver.isOnline` 这个旗
 
 未来的 Live Map、Nearest Driver Search、真正的 Auto Assignment、ETA 计算，都预期会直接重用这支 API 或它背后的 `matching.service.ts`，这次刻意不做地图 UI、不做路由、不算 ETA。
 
+## Live Dispatch Map
+
+`/dispatch/map`（需要 `dispatch:read`，导览列在 Dispatch Center 旁边）——纯粹的资料可视化画面，把三个既有模块的资料画在地图上，不新增任何业务逻辑：
+
+- **Driver Marker**（圆点，依状态上色，跟 Driver Status Board 同一套配色语意）：位置来自 [GPS Foundation](./gps.md) 的 `GET /api/admin/gps/locations`，状态/Current Booking 来自 [Driver Presence 模块](../../apps/backend/src/modules/driverPresence/driverPresence.service.ts) 的 `GET /api/admin/driver-presence`。前端用 `driverId` join 这两份资料（[markers.ts](../../apps/frontend/src/modules/liveMap/markers.ts) 的 `combineDriverMarkers`）——**不建立新的合并端点**，两支既有 API 各自独立轮询（5 秒），join 完全在前端做。
+  - `OFFLINE`/`BREAK` 的 Driver 天生不会出现在地图上：GPS Foundation 的 `/locations` 端点本来就只回传 `AVAILABLE`/`PENDING_OFFER`/`ACCEPTED_JOB`/`ON_TRIP` 这几个仍在报点的状态（见 [gps.md](./gps.md)），这不是这次刻意漏掉，是既有设计的自然结果。
+- **Booking Pickup Marker**（菱形，跟圆形的 Driver Marker 一眼区分）：只有还在等派车（`filter=WAITING`）且 Leg 有 `pickupLatitude`/`pickupLongitude` 的 Booking 才会画出来——这两个座标栏位是 [Driver Matching Engine](#driver-matching-engine-not-auto-assignment) 那次加的，目前没有任何 UI 让 Dispatcher 手动输入，留给未来的 Geocoding/地图选点功能自动写入。
+- **点选 Driver Marker**：显示 Driver Name / Vehicle Plate / Current Status / Current Booking / Last GPS Update，资料就是当下已经轮询到的 join 结果，不用额外呼叫任何 API。
+- **点选 Booking Marker**：显示 Booking ID / Pickup Location，并即时呼叫既有的 `GET /api/admin/dispatch/matching/:bookingId`（Driver Matching Engine，本身就是 not-Auto-Assignment 的唯读排序）显示 Ranked Nearby Drivers——这支端点在上一个 Driver Matching Engine 功能就已经完整实作好，这里单纯是重用，一行新的排序/筛选逻辑都没有写。
+
+这次刻意不做：地图上画路线、Turn-by-turn 导航、ETA 计算、Auto Assignment——全部照规格明确留到以后。地图库用 [Leaflet](https://leafletjs.com/) + [react-leaflet](https://react-leaflet.js.org/) + OpenStreetMap 免费图资，不需要任何 API Key/付费帐号，符合专案一贯「先求能用、不引入不必要的外部依赖」的取向。
+
 ## 已知限制
 
 - Priority 是「等待时间」的替代讯号，不是真正可以手动设定的栏位；如果之后要让 Dispatcher 手动调整优先级，需要在 Booking 加一个真正的 `priority` 栏位（这会需要修改 Module 1 的 schema）
