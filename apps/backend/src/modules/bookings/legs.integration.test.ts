@@ -351,6 +351,28 @@ describe("并发安全（UAT 稳定化）：addLeg 的分配总额检查上锁",
       expect(results[1].reason).toBeInstanceOf(ValidationError);
     }
   });
+
+  it("Stabilization Bug Fix：两个几乎同时的 addLeg（都没带 earningAllocationCents，以前完全不上锁）不会撞上重复的 sequence", async () => {
+    // 修法之前：lastLeg 的读取跟 leg.create 之间没有锁，两个几乎同时的 addLeg 都读到
+    // 同一个 lastLeg.sequence，一起 insert 相同的 sequence，撞上 @@unique([bookingId,
+    // sequence])，变成一个没接住的 P2002 500。现在两个都应该成功，各自拿到不同的 sequence。
+    const booking = await bookingsService.createBooking(
+      { girlName: "ConcurrentSequenceTest", totalAmountCents: 0 },
+      systemActor
+    );
+    bookingIds.push(booking.id);
+
+    const results = await Promise.allSettled([
+      legsService.addLeg(booking.id, { pickupLocation: "A", dropoffLocation: "B" }),
+      legsService.addLeg(booking.id, { pickupLocation: "C", dropoffLocation: "D" })
+    ]);
+
+    expect(results.every((r) => r.status === "fulfilled")).toBe(true);
+
+    const legs = await prisma.leg.findMany({ where: { bookingId: booking.id }, orderBy: { sequence: "asc" } });
+    expect(legs).toHaveLength(2);
+    expect(legs.map((l) => l.sequence)).toEqual([1, 2]);
+  });
 });
 
 async function fastForwardToOnBoard(legId: number, driverId: number) {

@@ -2,6 +2,7 @@ import type { Prisma, WalletTransactionStatus, WalletTransactionType } from "@pr
 import { prisma } from "../../config/prisma.js";
 import { ValidationError } from "../../common/errors.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
+import { endOfLocalDay, parseLocalDateOnly } from "../../common/date.js";
 
 type TxClient = Prisma.TransactionClient | typeof prisma;
 
@@ -168,9 +169,14 @@ export async function listTransactions({ driverId, status, dateFrom, dateTo, pag
   const where: Prisma.WalletTransactionWhereInput = {
     driverId,
     status,
+    // Stabilization Bug Fix：跟 collection.service.ts 的 listCollections 一样，直接
+    // `new Date(dateFrom)` 会被当成 UTC 午夜解析，只在伺服器时区正好是 UTC+N（N>0）时
+    // 恰好算对，换一台时区不同的机器就会悄悄偏移。改用 parseLocalDateOnly/endOfLocalDay，
+    // 同时修正 dateTo 原本用 startOfDay（等同该日 00:00）当上界，会把选定的最后一天几乎
+    // 整天都排除在外的问题。
     effectiveDate: {
-      gte: dateFrom ? startOfDay(new Date(dateFrom)) : undefined,
-      lte: dateTo ? startOfDay(new Date(dateTo)) : undefined
+      gte: dateFrom ? parseLocalDateOnly(dateFrom) : undefined,
+      lte: dateTo ? endOfLocalDay(parseLocalDateOnly(dateTo)) : undefined
     }
   };
 

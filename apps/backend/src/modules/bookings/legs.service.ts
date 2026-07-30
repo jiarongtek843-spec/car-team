@@ -167,6 +167,12 @@ export async function addLeg(bookingId: number, input: AddLegInput) {
   assertPickupCoordinates(input);
 
   await prisma.$transaction(async (tx) => {
+    // Stabilization Bug Fix：以前只有带 earningAllocationCents 才会锁 Booking row，
+    // 两个几乎同时的 addLeg（都没带这个栏位）会各自读到同一个 lastLeg.sequence，
+    // 一起插入相同的 sequence，撞上 @@unique([bookingId, sequence]) 变成一个没接住的
+    // P2002 500。这里统一先锁 Booking row，确保 lastLeg 的读取跟这次的 insert 是原子的。
+    await tx.$queryRaw`SELECT id FROM "bookings" WHERE id = ${bookingId} FOR UPDATE`;
+
     if (input.earningAllocationCents !== undefined) {
       await assertAllocationFits(tx, bookingId, input.earningAllocationCents);
     }

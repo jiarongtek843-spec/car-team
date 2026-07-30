@@ -411,6 +411,12 @@ export async function getWalletForBooking(bookingId: number) {
   };
 }
 
+// Stabilization：这份清单之前完全没有上限，随著 Booking 数量累积会一直变大变慢。
+// totalCents 改用 aggregate 直接在 DB 端算总和（不受 take 影响，金额一定正确），
+// 只有拿来显示的 transactions 列表本身加上限——避免「加了 take 却让总额跟着变
+// 不完整」这种看起来修好、实际上做出错误金额的假修复。
+const MAX_DRIVER_REVENUE_SHARE_TRANSACTIONS = 500;
+
 /** Driver Wallet：Admin 视角查看某个 Driver 收到的所有 Revenue Sharing 分润。 */
 export async function getDriverRevenueShareWallet(driverId: number) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
@@ -418,13 +424,19 @@ export async function getDriverRevenueShareWallet(driverId: number) {
     throw new NotFoundError(`Driver ${driverId} not found`);
   }
 
-  const transactions = await prisma.walletTransaction.findMany({
-    where: { driverId, transactionType: "REVENUE_SHARE_PAYOUT" },
-    include: payoutDetailInclude,
-    orderBy: { createdAt: "desc" }
-  });
+  const where = { driverId, transactionType: "REVENUE_SHARE_PAYOUT" } as const;
 
-  const totalCents = transactions.reduce((sum, t) => sum + t.amountCents, 0);
+  const [transactions, aggregate] = await Promise.all([
+    prisma.walletTransaction.findMany({
+      where,
+      include: payoutDetailInclude,
+      orderBy: { createdAt: "desc" },
+      take: MAX_DRIVER_REVENUE_SHARE_TRANSACTIONS
+    }),
+    prisma.walletTransaction.aggregate({ where, _sum: { amountCents: true } })
+  ]);
+
+  const totalCents = aggregate._sum.amountCents ?? 0;
 
   return { driverId, totalCents, transactions };
 }

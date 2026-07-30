@@ -40,11 +40,18 @@ function serializeLeg<
   };
 }
 
+// Stabilization：这支是 Driver App 的「My Jobs」主画面，之前完全没有上限——正式改成
+// 分页/日期筛选牵涉前端契约改动，风险跟这次 Stabilization 要的「低风险」不成比例，
+// 先加一个防御性的 take 上限，避免这份清单随著历史 Leg 累积无止尽变大变慢；跟
+// dispatch.service.ts 的 listWaitingBookings 用同一个 500 笔上限当先例。
+const MAX_MY_LEGS = 500;
+
 export async function listMyLegs(driverId: number) {
   const legs = await prisma.leg.findMany({
     where: { driverId },
     include: bookingSummaryInclude,
-    orderBy: [{ scheduledAt: "asc" }, { sequence: "asc" }]
+    orderBy: [{ scheduledAt: "asc" }, { sequence: "asc" }],
+    take: MAX_MY_LEGS
   });
   return legs.map(serializeLeg);
 }

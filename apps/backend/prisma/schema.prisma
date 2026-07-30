@@ -424,6 +424,9 @@ model Booking {
 
   @@index([financialStatus])
   @@index([financialVersion])
+  // Stabilization：listBookings 一律用 status 筛选、orderBy createdAt desc，
+  // 之前没有对应索引，规模变大后是全表扫描。
+  @@index([status, createdAt])
   @@map("bookings")
 }
 
@@ -479,6 +482,11 @@ model Leg {
   driverPresences    DriverPresence[]
 
   @@unique([bookingId, sequence])
+  // Stabilization：Leg 是全系统查最频繁的表之一（Driver Job List/GPS presence 用
+  // driverId 查，Dispatch waiting-bookings/Driver Presence 用 status 查、两者常常
+  // 一起用），之前完全没有索引，这两个是目前找得到的所有查询形状里最高覆盖率的组合。
+  @@index([driverId, status])
+  @@index([status])
   @@map("legs")
 }
 
@@ -716,6 +724,10 @@ model WalletTransaction {
   @@index([source])
   @@index([bookingChargeId])
   @@index([revenueSnapshotId])
+  // Stabilization：driverId（+status/effectiveDate）是 Wallet Summary、Settlement
+  // Preview、Driver Revenue Share Wallet 等几乎每一支查询都在用的过滤条件，之前完全
+  // 没被索引覆盖到，一直是全表扫描。
+  @@index([driverId, status, effectiveDate])
   @@map("wallet_transactions")
 }
 
@@ -749,6 +761,9 @@ model Settlement {
   reversalTransactions WalletTransaction[] @relation("SettlementAdjustmentReversal")
   collections          Collection[]        @relation("SettlementCollections")
 
+  // Stabilization：listSettlements/listDriverSettlements/confirmSettlement 都用
+  // driverId(+status) 查，之前只有 reference 的 unique index 覆盖不到这个查询形状。
+  @@index([driverId, status])
   @@map("settlements")
 }
 

@@ -6,6 +6,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import { PERMISSIONS } from "../../common/permissions.js";
 import { uploadsRoot } from "../../common/upload.js";
+import { endOfLocalDay, parseLocalDateOnly } from "../../common/date.js";
 import type { AuthUser } from "../auth/auth.middleware.js";
 
 type TxClient = Prisma.TransactionClient | typeof prisma;
@@ -110,9 +111,13 @@ export async function listCollections(filters: ListCollectionsFilters) {
     status,
     paymentMethod,
     purpose,
+    // Stabilization Bug Fix：跟 dispatch.service.ts 的 Completed 日期 Filter 之前一样，
+    // 直接 `new Date(dateFrom)` 会被当成 UTC 午夜解析，伺服器时区不是 UTC 时会悄悄偏移
+    // 几个小时，让选定日期边界的资料被误纳入/排除。改用 parseLocalDateOnly/endOfLocalDay，
+    // 跟 settlement.service.ts/dispatch.service.ts 共用同一套修法。
     collectedAt: {
-      gte: dateFrom ? new Date(dateFrom) : undefined,
-      lte: dateTo ? new Date(dateTo) : undefined
+      gte: dateFrom ? parseLocalDateOnly(dateFrom) : undefined,
+      lte: dateTo ? endOfLocalDay(parseLocalDateOnly(dateTo)) : undefined
     },
     ...(search
       ? {

@@ -483,9 +483,14 @@ export async function listSettlements({ driverId, page, pageSize }: ListSettleme
   return { data, total, page, pageSize };
 }
 
+// Stabilization：跟 driverJobs.service.ts 的 listMyLegs 同样的问题——之前无上限，
+// 随著结算周期累积会一直变大。这里只是回传清单（没有从结果算总和），加 take 是安全的。
+const MAX_DRIVER_SETTLEMENTS = 500;
+
 export function listDriverSettlements(driverId: number) {
   return prisma.settlement.findMany({
     where: { driverId },
-    orderBy: { createdAt: "desc" }
+    orderBy: { createdAt: "desc" },
+    take: MAX_DRIVER_SETTLEMENTS
   });
 }
