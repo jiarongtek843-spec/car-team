@@ -5,6 +5,7 @@ import { recalculateBookingStatus } from "../bookings/bookings.service.js";
 import { applyLegTransition } from "../bookings/legTransition.js";
 import { createLegEarning } from "../wallet/wallet.service.js";
 import { payoutForCompletedLeg } from "../revenueSharing/revenueSharing.service.js";
+import { createActivity } from "../activityLog/activityLog.service.js";
 import type { AuditActor } from "../../common/audit.js";
 
 const bookingSummaryInclude = {
@@ -80,41 +81,73 @@ async function transitionAndReturn(
   driverId: number,
   legId: number,
   fromStatuses: LegStatus[],
-  data: Prisma.LegUncheckedUpdateManyInput
+  data: Prisma.LegUncheckedUpdateManyInput,
+  activityType: string,
+  summary: string
 ) {
   await assertDriverActiveForJobAction(driverId);
-  const leg = await applyLegTransition({ legId, driverId, fromStatuses, data });
+  const leg = await prisma.$transaction(async (tx) => {
+    const updated = await applyLegTransition({ legId, driverId, fromStatuses, data, client: tx });
+    await createActivity(
+      {
+        module: "DRIVER_JOBS",
+        activityType,
+        entityType: "Leg",
+        entityId: legId,
+        summary,
+        actor: { driverId },
+        subjectDriverId: driverId
+      },
+      tx
+    );
+    return updated;
+  });
   await recalculateBookingStatus(leg.bookingId);
   return getMyLegOrThrow(driverId, legId);
 }
 
 export function acceptLeg(driverId: number, legId: number) {
-  return transitionAndReturn(driverId, legId, ["ASSIGNED"], {
-    status: "ACCEPTED",
-    acceptedAt: new Date()
-  });
+  return transitionAndReturn(
+    driverId,
+    legId,
+    ["ASSIGNED"],
+    { status: "ACCEPTED", acceptedAt: new Date() },
+    "LEG_ACCEPTED",
+    "Driver accepted the job"
+  );
 }
 
 export function rejectLeg(driverId: number, legId: number, reason: string) {
-  return transitionAndReturn(driverId, legId, ["ASSIGNED"], {
-    status: "REJECTED",
-    rejectedAt: new Date(),
-    rejectionReason: reason
-  });
+  return transitionAndReturn(
+    driverId,
+    legId,
+    ["ASSIGNED"],
+    { status: "REJECTED", rejectedAt: new Date(), rejectionReason: reason },
+    "LEG_REJECTED",
+    "Driver rejected the job"
+  );
 }
 
 export function markDriverArriving(driverId: number, legId: number) {
-  return transitionAndReturn(driverId, legId, ["ACCEPTED"], {
-    status: "DRIVER_ARRIVING",
-    driverArrivingAt: new Date()
-  });
+  return transitionAndReturn(
+    driverId,
+    legId,
+    ["ACCEPTED"],
+    { status: "DRIVER_ARRIVING", driverArrivingAt: new Date() },
+    "DRIVER_ARRIVING",
+    "Driver is on the way"
+  );
 }
 
 export function markPassengerOnBoard(driverId: number, legId: number) {
-  return transitionAndReturn(driverId, legId, ["DRIVER_ARRIVING"], {
-    status: "PASSENGER_ON_BOARD",
-    passengerOnBoardAt: new Date()
-  });
+  return transitionAndReturn(
+    driverId,
+    legId,
+    ["DRIVER_ARRIVING"],
+    { status: "PASSENGER_ON_BOARD", passengerOnBoardAt: new Date() },
+    "PASSENGER_ON_BOARD",
+    "Passenger is on board"
+  );
 }
 
 /**
@@ -153,6 +186,19 @@ export async function completeLeg(driverId: number, legId: number, actor: AuditA
     } else {
       await payoutForCompletedLeg(tx, { bookingId: updatedLeg.bookingId, legId: updatedLeg.id }, actor);
     }
+
+    await createActivity(
+      {
+        module: "DRIVER_JOBS",
+        activityType: "LEG_COMPLETED",
+        entityType: "Leg",
+        entityId: legId,
+        summary: "Driver completed the job",
+        actor: { driverId },
+        subjectDriverId: driverId
+      },
+      tx
+    );
 
     return updatedLeg;
   });

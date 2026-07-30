@@ -6,6 +6,7 @@ import { applyLegTransition } from "./legTransition.js";
 import { getFrozenAllocationSumCents, redistributeAutoAllocations } from "./allocation.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import type { TxClient } from "../bookingCharges/bookingCharge.service.js";
+import { createActivity } from "../activityLog/activityLog.service.js";
 
 const REASSIGNABLE_STATUSES = [
   "PENDING",
@@ -279,26 +280,41 @@ export async function assignDriver(bookingId: number, legId: number, driverId: n
   await getOwnedLeg(bookingId, legId);
   await assertDriverAssignable(driverId);
 
-  await applyLegTransition({
-    legId,
-    fromStatuses: [...REASSIGNABLE_STATUSES],
-    data: {
-      driverId,
-      status: "ASSIGNED",
-      assignedAt: new Date(),
-      acceptedAt: null,
-      driverArrivingAt: null,
-      passengerOnBoardAt: null,
-      rejectedAt: null,
-      rejectionReason: null
-    }
+  await prisma.$transaction(async (tx) => {
+    await applyLegTransition({
+      legId,
+      fromStatuses: [...REASSIGNABLE_STATUSES],
+      data: {
+        driverId,
+        status: "ASSIGNED",
+        assignedAt: new Date(),
+        acceptedAt: null,
+        driverArrivingAt: null,
+        passengerOnBoardAt: null,
+        rejectedAt: null,
+        rejectionReason: null
+      },
+      client: tx
+    });
+
+    await createActivity(
+      {
+        module: "DISPATCH",
+        activityType: "DRIVER_ASSIGNED",
+        entityType: "Leg",
+        entityId: legId,
+        summary: "Dispatcher manually assigned a driver",
+        subjectDriverId: driverId
+      },
+      tx
+    );
   });
 
   return recalculateBookingStatus(bookingId);
 }
 
 export async function cancelLeg(bookingId: number, legId: number) {
-  await getOwnedLeg(bookingId, legId);
+  const leg = await getOwnedLeg(bookingId, legId);
   const booking = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } });
   await assertNotFinalizedV2(booking);
 
@@ -311,6 +327,20 @@ export async function cancelLeg(bookingId: number, legId: number) {
     });
     // Leg 数量（有效的部分）变了，剩下的自动分配 Leg 要重新平分 Driver Pool。
     await redistributeAutoAllocations(tx, bookingId);
+
+    if (leg.driverId) {
+      await createActivity(
+        {
+          module: "DISPATCH",
+          activityType: "LEG_CANCELLED",
+          entityType: "Leg",
+          entityId: legId,
+          summary: "Leg was cancelled",
+          subjectDriverId: leg.driverId
+        },
+        tx
+      );
+    }
   });
 
   return recalculateBookingStatus(bookingId);

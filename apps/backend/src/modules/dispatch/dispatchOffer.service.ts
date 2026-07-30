@@ -19,6 +19,7 @@ import { recalculateBookingStatus } from "../bookings/bookings.service.js";
 import { findEligibleDrivers } from "./eligibility.js";
 import { rankDrivers } from "./ranking.js";
 import { listDispatchDrivers } from "./dispatch.service.js";
+import { createActivity } from "../activityLog/activityLog.service.js";
 
 /** Leg 处在这两个状态才算「还在等派车」，跟 dispatch.service.ts 的 WAITING_STATUSES 是同一个概念。 */
 const WAITING_LEG_STATUSES = ["PENDING", "REJECTED"] as const;
@@ -63,14 +64,29 @@ export async function sendOffer(legId: number, actor: AuditActor) {
   const settings = await getCompanySettings();
   const expiresAt = new Date(now.getTime() + settings.dispatchOfferTimeoutSeconds * 1000);
 
-  const offers = await prisma.$transaction(
-    ranked.map((r) =>
-      prisma.dispatchOffer.create({
+  const offers = await prisma.$transaction(async (tx) => {
+    const created = [];
+    for (const r of ranked) {
+      const offer = await tx.dispatchOffer.create({
         data: { legId, driverId: r.candidate.id, distanceKm: r.distanceKm, expiresAt },
         include: { driver: { select: { id: true, name: true, vehiclePlateNumber: true } } }
-      })
-    )
-  );
+      });
+      created.push(offer);
+      await createActivity(
+        {
+          module: "DISPATCH",
+          activityType: "OFFER_SENT",
+          entityType: "Leg",
+          entityId: legId,
+          summary: `Offer sent to ${offer.driver.name}`,
+          actor: { userId: actor.id },
+          subjectDriverId: r.candidate.id
+        },
+        tx
+      );
+    }
+    return created;
+  });
 
   await writeAuditLog({
     actor,
@@ -153,6 +169,19 @@ export async function acceptOffer(driverId: number, offerId: number) {
       data: { status: "EXPIRED", respondedAt: now }
     });
 
+    await createActivity(
+      {
+        module: "DISPATCH",
+        activityType: "OFFER_ACCEPTED",
+        entityType: "Leg",
+        entityId: offer.legId,
+        summary: "Driver accepted the offer",
+        actor: { driverId },
+        subjectDriverId: driverId
+      },
+      tx
+    );
+
     return updatedLeg;
   });
 
@@ -161,14 +190,29 @@ export async function acceptOffer(driverId: number, offerId: number) {
 }
 
 export async function declineOffer(driverId: number, offerId: number) {
-  await getOwnedPendingOffer(driverId, offerId);
-  const result = await prisma.dispatchOffer.updateMany({
-    where: { id: offerId, driverId, status: "PENDING" },
-    data: { status: "DECLINED", respondedAt: new Date() }
+  const owned = await getOwnedPendingOffer(driverId, offerId);
+  await prisma.$transaction(async (tx) => {
+    const result = await tx.dispatchOffer.updateMany({
+      where: { id: offerId, driverId, status: "PENDING" },
+      data: { status: "DECLINED", respondedAt: new Date() }
+    });
+    if (result.count !== 1) {
+      throw new ConflictError("This offer is no longer available");
+    }
+
+    await createActivity(
+      {
+        module: "DISPATCH",
+        activityType: "OFFER_DECLINED",
+        entityType: "Leg",
+        entityId: owned.legId,
+        summary: "Driver declined the offer",
+        actor: { driverId },
+        subjectDriverId: driverId
+      },
+      tx
+    );
   });
-  if (result.count !== 1) {
-    throw new ConflictError("This offer is no longer available");
-  }
 }
 
 /**
@@ -177,9 +221,33 @@ export async function declineOffer(driverId: number, offerId: number) {
  * Bookings 名单里，这个 Sweep 跑不跑都不影响 Dispatcher 看得到、能手动处理。
  */
 export async function sweepExpiredOffers() {
-  const result = await prisma.dispatchOffer.updateMany({
+  const expired = await prisma.dispatchOffer.findMany({
     where: { status: "PENDING", expiresAt: { lte: new Date() } },
-    data: { status: "EXPIRED" }
+    select: { id: true, legId: true, driverId: true }
   });
-  return result.count;
+  if (expired.length === 0) {
+    return 0;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.dispatchOffer.updateMany({
+      where: { id: { in: expired.map((o) => o.id) } },
+      data: { status: "EXPIRED" }
+    });
+    for (const offer of expired) {
+      await createActivity(
+        {
+          module: "DISPATCH",
+          activityType: "OFFER_EXPIRED",
+          entityType: "Leg",
+          entityId: offer.legId,
+          summary: "Offer expired without a response",
+          subjectDriverId: offer.driverId
+        },
+        tx
+      );
+    }
+  });
+
+  return expired.length;
 }

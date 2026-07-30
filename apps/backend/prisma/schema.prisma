@@ -293,6 +293,7 @@ model Driver {
   activityLogsAsActor  ActivityLog[] @relation("ActivityLogActorDriver")
   activityLogsAsSubject ActivityLog[] @relation("ActivityLogSubjectDriver")
   notifications         Notification[]
+  presence              DriverPresence?
 
   @@map("drivers")
 }
@@ -414,6 +415,7 @@ model Booking {
   tripExpenses       TripExpense[]
   revenueSnapshot    RevenueSharingSnapshot?
   notifications      Notification[]
+  driverPresences    DriverPresence[]
 
   @@index([financialStatus])
   @@index([financialVersion])
@@ -464,6 +466,7 @@ model Leg {
   bookingCharges     BookingCharge[]
   tripExpenses       TripExpense[]
   dispatchOffers     DispatchOffer[]
+  driverPresences    DriverPresence[]
 
   @@unique([bookingId, sequence])
   @@map("legs")
@@ -966,4 +969,42 @@ model Notification {
   @@index([audience, isRead, createdAt])
   @@index([relatedBookingId])
   @@map("notifications")
+}
+
+// Driver Presence（2026-07，UAT 稳定化阶段）：在 GPS/Auto Assignment 之前先建立「司机现在
+// 到底是什么状态」这件事的唯一权威来源。跟 gps.service.ts 既有的 computePresenceStatus() 是
+//两回事，不要混用：那个是「读取当下」才即时算出来的展示用状态（依赖 GPS 心跳新不新鲜、
+// 完全没有 Pending Offer 这个概念），每次读都重新算、不落地存；这里的 DriverPresence 是
+// 「事件发生当下就写入」的持久化状态机，由 Dispatch/DriverJobs/GPS 各自的动作驱动（透过
+// activityLog.service.ts 的 Subscriber 机制自动更新，见 driverPresence.service.ts），GPS/
+// Live Map/Auto Assignment 未来都应该读这里，不是重新发明一套。
+//
+// 状态命名故意叫 DriverPresenceState（不是 Status）——避免跟 gps.service.ts 已经匯出的
+// DriverPresenceStatus 这个字面同名但意义不同的型别混淆。
+enum DriverPresenceState {
+  OFFLINE
+  AVAILABLE
+  PENDING_OFFER
+  ACCEPTED_JOB
+  ON_TRIP
+  // 保留给未来用（例如司机自己按「休息中」）——这次不做任何会把状态设成 BREAK 的触发点。
+  BREAK
+}
+
+model DriverPresence {
+  driverId Int                 @id @map("driver_id")
+  driver   Driver              @relation(fields: [driverId], references: [id])
+  status   DriverPresenceState @default(OFFLINE)
+
+  currentBookingId Int?     @map("current_booking_id")
+  currentBooking   Booking? @relation(fields: [currentBookingId], references: [id], onDelete: SetNull)
+  currentLegId     Int?     @map("current_leg_id")
+  currentLeg       Leg?     @relation(fields: [currentLegId], references: [id], onDelete: SetNull)
+
+  lastSeenAt DateTime? @map("last_seen_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([currentLegId])
+  @@map("driver_presence")
 }

@@ -3,6 +3,7 @@ import { Card, Col, Drawer, Row, Statistic, Tabs, Typography } from "antd";
 import { useDispatchStatisticsQuery } from "./hooks";
 import { WaitingBookingsPanel } from "./components/WaitingBookingsPanel";
 import { DriverListPanel } from "./components/DriverListPanel";
+import { DriverStatusBoard } from "../driverPresence/components/DriverStatusBoard";
 import type { DispatchWaitingLeg } from "./types";
 import { useIsMobile } from "../../common/useIsMobile";
 
@@ -105,6 +106,11 @@ export function DispatchCenterPage() {
                 children: <DriverListPanel selectedLeg={selectedLeg} onAssigned={handleAssignedMobile} />
               },
               {
+                key: "status",
+                label: "Status",
+                children: <DriverStatusBoard />
+              },
+              {
                 key: "active",
                 label: "Active Jobs",
                 children: (
@@ -151,6 +157,7 @@ export function DispatchCenterPage() {
               <DriverListPanel selectedLeg={selectedLeg} onAssigned={() => setSelectedLeg(null)} />
             </Col>
           </Row>
+          <DriverStatusBoard />
           <Drawer
             title="Completed"
             placement="right"

@@ -4,6 +4,7 @@ import { ConflictError, NotFoundError, ValidationError } from "../../common/erro
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import { UNFINISHED_LEG_STATUSES } from "../bookings/bookings.status.js";
 import { getCompanySettings } from "../companySettings/companySettings.service.js";
+import { createActivity } from "../activityLog/activityLog.service.js";
 
 /**
  * 保底默认值，只在 `computePresenceStatus` 没有明确传阈值时使用（例如既有的单元测试）。
@@ -117,6 +118,16 @@ export async function goOnline(driverId: number, actor: AuditActor) {
     afterData: { isOnline: true }
   });
 
+  await createActivity({
+    module: "GPS",
+    activityType: "DRIVER_ONLINE",
+    entityType: "Driver",
+    entityId: driverId,
+    summary: "Driver went online",
+    actor: { userId: actor.id },
+    subjectDriverId: driverId
+  });
+
   return updated;
 }
 
@@ -137,6 +148,16 @@ export async function goOffline(driverId: number, actor: AuditActor) {
     entityType: "Driver",
     entityId: driverId,
     afterData: { isOnline: false }
+  });
+
+  await createActivity({
+    module: "GPS",
+    activityType: "DRIVER_OFFLINE",
+    entityType: "Driver",
+    entityId: driverId,
+    summary: "Driver went offline",
+    actor: { userId: actor.id },
+    subjectDriverId: driverId
   });
 
   return updated;
