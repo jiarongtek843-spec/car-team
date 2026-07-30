@@ -298,14 +298,19 @@ model Driver {
   @@map("drivers")
 }
 
-// 只存「最新一笔」定位，不做轨迹历史（第一版明确不需要轨迹回放）。每次上传直接覆盖。
-// recordedAt 是装置端上报的时间，receivedAt 是 Backend 收到的时间——heartbeat/自动离线判断
-// 一律用 receivedAt，避免装置时间不准影响判断。
+// GPS Foundation：只存「最新一笔」定位，不做轨迹历史（第一版明确不需要轨迹回放）。每次上传
+// 直接覆盖（driverId 是 PK，天生 1:1）。recordedAt 是装置端上报的时间，receivedAt 是 Backend
+// 收到的时间——heartbeat/自动离线判断一律用 receivedAt，避免装置时间不准影响判断。
+// 未来若要加轨迹历史（Route Replay），做法是新增一张独立的 DriverLocationHistory 表
+// （每次上传都 insert 一笔，不覆盖），本表继续只承担「latest location」的角色不变，
+// 现有的 Driver Update Location / Admin Get Driver Locations 这两个 API 的回传形状
+// 都不需要改，只需要在 recordPing 里额外多 insert 一笔到历史表即可。
 model DriverLocation {
   driverId       Int      @id @map("driver_id")
   driver         Driver   @relation(fields: [driverId], references: [id])
   latitude       Float
   longitude      Float
+  accuracy       Float?
   speed          Float?
   heading        Float?
   batteryPercent Int?     @map("battery_percent")

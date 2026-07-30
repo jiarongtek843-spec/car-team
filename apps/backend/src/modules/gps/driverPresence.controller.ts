@@ -7,6 +7,7 @@ import * as gpsService from "./gps.service.js";
 const pingSchema = z.object({
   latitude: z.coerce.number(),
   longitude: z.coerce.number(),
+  accuracy: z.coerce.number().min(0).optional(),
   speed: z.coerce.number().optional(),
   heading: z.coerce.number().optional(),
   batteryPercent: z.coerce.number().int().min(0).max(100).optional(),

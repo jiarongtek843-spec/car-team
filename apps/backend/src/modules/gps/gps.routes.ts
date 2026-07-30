@@ -10,3 +10,4 @@ gpsRouter.use(requireAuth, requirePermission(PERMISSIONS.GPS_READ));
 
 gpsRouter.get("/drivers", asyncHandler(gpsController.list));
 gpsRouter.get("/drivers/:driverId", asyncHandler(gpsController.getOne));
+gpsRouter.get("/locations", asyncHandler(gpsController.locations));

@@ -5,6 +5,10 @@ import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import { UNFINISHED_LEG_STATUSES } from "../bookings/bookings.status.js";
 import { getCompanySettings } from "../companySettings/companySettings.service.js";
 import { createActivity } from "../activityLog/activityLog.service.js";
+import { getPresenceForDriver } from "../driverPresence/driverPresence.service.js";
+
+/** GPS Foundation：只有司机目前处于这几个「正在跑单」的 Presence 状态，才应该继续上传定位。 */
+const LOCATION_REPORTING_STATES = ["AVAILABLE", "PENDING_OFFER", "ACCEPTED_JOB", "ON_TRIP"] as const;
 
 /**
  * 保底默认值，只在 `computePresenceStatus` 没有明确传阈值时使用（例如既有的单元测试）。
@@ -166,6 +170,7 @@ export async function goOffline(driverId: number, actor: AuditActor) {
 interface RecordPingInput {
   latitude: number;
   longitude: number;
+  accuracy?: number;
   speed?: number;
   heading?: number;
   batteryPercent?: number;
@@ -174,8 +179,13 @@ interface RecordPingInput {
 
 /**
  * GPS 上传独立于 Booking/Leg，这里刻意不碰任何 Leg/Wallet 相关的表——上传失败或 Driver
- * 忘记上线都不该挡住 Complete Leg 这类核心业务操作。只有「必须先 Go Online 才能上传定位」
- * 这一条规则，避免 Offline 状态下还留着一份「看起来是最新」的定位资料造成误判。
+ * 忘记上线都不该挡住 Complete Leg 这类核心业务操作。
+ *
+ * GPS Foundation：上传门槛从单纯的 `driver.isOnline` 改成检查新的 DriverPresence 模块
+ * 的 status——只有 AVAILABLE/PENDING_OFFER/ACCEPTED_JOB/ON_TRIP 这几个「正在跑单」
+ * 的状态才允许上传，BREAK（休息中）跟 OFFLINE 一样要挡掉。DriverPresence 是 goOnline/
+ * goOffline 透过 Activity Log 订阅同步更新的，比原本单纯的 isOnline boolean 更能反映
+ * 司机「现在到底该不该继续回报位置」这件事。
  */
 export async function recordPing(driverId: number, input: RecordPingInput) {
   if (input.latitude < -90 || input.latitude > 90) {
@@ -184,13 +194,19 @@ export async function recordPing(driverId: number, input: RecordPingInput) {
   if (input.longitude < -180 || input.longitude > 180) {
     throw new ValidationError("longitude must be between -180 and 180");
   }
+  if (input.accuracy !== undefined && input.accuracy < 0) {
+    throw new ValidationError("accuracy must not be negative");
+  }
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) {
     throw new NotFoundError(`Driver ${driverId} not found`);
   }
-  if (!driver.isOnline) {
-    throw new ConflictError("Driver must go online before uploading GPS location");
+
+  const presence = await getPresenceForDriver(driverId);
+  const status = presence?.status ?? "OFFLINE";
+  if (!(LOCATION_REPORTING_STATES as readonly string[]).includes(status)) {
+    throw new ConflictError("Driver must be online before uploading GPS location");
   }
 
   return prisma.driverLocation.upsert({
@@ -199,6 +215,7 @@ export async function recordPing(driverId: number, input: RecordPingInput) {
       driverId,
       latitude: input.latitude,
       longitude: input.longitude,
+      accuracy: input.accuracy,
       speed: input.speed,
       heading: input.heading,
       batteryPercent: input.batteryPercent,
@@ -207,12 +224,48 @@ export async function recordPing(driverId: number, input: RecordPingInput) {
     update: {
       latitude: input.latitude,
       longitude: input.longitude,
+      accuracy: input.accuracy,
       speed: input.speed,
       heading: input.heading,
       batteryPercent: input.batteryPercent,
       recordedAt: input.recordedAt ? new Date(input.recordedAt) : new Date()
     }
   });
+}
+
+/**
+ * GPS Foundation：Admin Get Driver Locations API 的核心逻辑——只回传「latest location」，
+ * 不含 presence/activeLeg 那些既有 Dashboard 才需要的合并资讯（那份合并逻辑留给既有的
+ * listDriverPresence/getDriverPresence，避免重复维护两套 payload）。只列出目前仍在
+ * 报点状态（AVAILABLE/PENDING_OFFER/ACCEPTED_JOB/ON_TRIP）且有位置纪录的司机。
+ */
+export async function getDriverLocations() {
+  const drivers = await prisma.driver.findMany({
+    where: {
+      status: "ACTIVE",
+      location: { isNot: null },
+      presence: { status: { in: [...LOCATION_REPORTING_STATES] } }
+    },
+    select: {
+      id: true,
+      name: true,
+      location: {
+        select: { latitude: true, longitude: true, accuracy: true, receivedAt: true }
+      }
+    },
+    orderBy: { name: "asc" }
+  });
+
+  return drivers
+    .filter((driver) => driver.location !== null)
+    .map((driver) => ({
+      driverId: driver.id,
+      driverName: driver.name,
+      latitude: driver.location!.latitude,
+      longitude: driver.location!.longitude,
+      accuracy: driver.location!.accuracy,
+      updatedAt: driver.location!.receivedAt
+    }));
 }
 
 const driverSummarySelect = {

@@ -44,12 +44,13 @@ Driver 登入后可以自己 Go Online / Go Offline；上线期间前端每隔 G
 - `GET /me` — 自己目前的 presence（含 status、位置、目前负责的 Leg）
 - `POST /online` — Go Online（`isOnline=true`，记录 `onlineSince`，写 `DRIVER_WENT_ONLINE` Audit Log）
 - `POST /offline` — Go Offline（`isOnline=false`，清空 `onlineSince`，写 `DRIVER_WENT_OFFLINE` Audit Log；**不会删除**最后一笔定位，留着给 Admin 参考「最后出现在哪里」）
-- `POST /ping` — 上传一次定位：`{latitude, longitude, speed?, heading?, batteryPercent?, recordedAt?}`；Driver 不是 Online 状态时会被拒绝（409），避免留一份「看起来最新」但其实是离线后的定位资料
+- `POST /ping` — 上传一次定位：`{latitude, longitude, accuracy?, speed?, heading?, batteryPercent?, recordedAt?}`；只有 [Driver Presence 模块](../../apps/backend/src/modules/driverPresence/driverPresence.service.ts) 判定这个 Driver 目前是 `AVAILABLE`/`PENDING_OFFER`/`ACCEPTED_JOB`/`ON_TRIP` 之一（正在跑单）才接受，`OFFLINE`/`BREAK` 都会被拒绝（409），避免留一份「看起来最新」但其实不该继续更新的定位资料
 
 ### Admin 端（`/api/admin/gps`）
 
 - `GET /drivers?onlineOnly=true|false` — Dashboard List View 用；`onlineOnly`（默认 `true`）只排除真正 `OFFLINE` 的 Driver，`CONNECTION_LOST` 等其他状态都算「在线」一起显示（掉线中反而更需要被看到）
 - `GET /drivers/:driverId` — 单一 Driver 的 presence，给 Booking Detail 页面用
+- `GET /locations` — **GPS Foundation**：只回传 latest location（`driverId`/`driverName`/`latitude`/`longitude`/`accuracy`/`updatedAt`），不含 presence/activeLeg 合并资讯，专门给 Live Map / Nearest Driver Search / Auto Assignment 之类未来功能重用，跟上面两个既有的 Dashboard 端点分开维护
 
 高频率的 `ping` **刻意不写 Audit Log**（每 5 秒一次会把 Audit Log 灌爆），只有 Go Online/Go Offline 这种低频率、有意义的状态变化才记录。
 
@@ -69,7 +70,8 @@ Driver 登入后可以自己 Go Online / Go Offline；上线期间前端每隔 G
 ## 已知限制
 
 - 第一版没有地图（Google Maps）、没有轨迹回放、没有 Geofence、没有 ETA、没有路线规划——全部按规格明确留到以后
-- `DriverLocation` 只存最新一笔，删掉旧资料没有任何历史可查，之后如果要做轨迹回放需要另外设计一张历史表（现在这张表的写入方式不适合直接改造）
+- `DriverLocation` 只存最新一笔，删掉旧资料没有任何历史可查。**GPS Foundation 起**，这张表刻意设计成「未来加一张独立的 `DriverLocationHistory` 表（每次上传都 insert，不覆盖）」就能补上轨迹回放，不需要改动现有的 `POST /ping`/`GET /locations` 这两个 API 的回传形状
 - 自动离线检测靠「读取时顺手修正」，不是准时的背景排程——如果完全没有人在看 Dashboard、也没有人在看任何 Booking Detail，DB 里的 `isOnline` 栏位可能会一直停留在 `true` 不会主动被改掉；但这不影响任何人实际看到的显示结果是否正确，因为显示永远是即时算出来的
-- `BREAK` 状态目前完全没有产生的入口，纯粹是为未来预留的栏位
+- `BREAK` 状态目前完全没有产生的入口，纯粹是为未来「Admin 让 Driver 暂时休息」预留
 - Driver 端拿电量用的 `navigator.getBattery()` 是已经被大多数主流浏览器移除的非标准 API，实际能拿到电量的情况会越来越少，属于「有就带、没有就算了」的锦上添花功能
+- `GET /locations` 只列出目前仍在报点状态且已有位置纪录的 Driver；Live Map 之类的功能如果要读，直接呼叫这个端点即可，不需要重新实作一次筛选逻辑

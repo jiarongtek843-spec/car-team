@@ -3,7 +3,7 @@ import { prisma } from "../../config/prisma.js";
 import * as bookingsService from "../bookings/bookings.service.js";
 import * as driverJobsService from "../driverJobs/driverJobs.service.js";
 import * as gpsService from "./gps.service.js";
-import { ConflictError } from "../../common/errors.js";
+import { ConflictError, ValidationError } from "../../common/errors.js";
 import type { AuditActor } from "../../common/audit.js";
 
 async function createTestDriver(name: string) {
@@ -212,5 +212,88 @@ describe("GPS live tracking (Module 5 scenarios)", () => {
     const list = await gpsService.listDriverPresence(false);
     const entry = list.find((p) => p.driver.id === driver.id);
     expect(entry?.status).toBe("ONLINE");
+  });
+});
+
+describe("GPS Foundation (accuracy + DriverPresence-gated location reporting)", () => {
+  it("stores and returns the optional accuracy field", async () => {
+    const driver = await createTestDriver("Accuracy Driver");
+    driverIds.push(driver.id);
+    await gpsService.goOnline(driver.id, systemActor);
+
+    const location = await gpsService.recordPing(driver.id, { latitude: 3.1, longitude: 101.6, accuracy: 12.5 });
+    expect(location.accuracy).toBe(12.5);
+
+    const reloaded = await prisma.driverLocation.findUniqueOrThrow({ where: { driverId: driver.id } });
+    expect(reloaded.accuracy).toBe(12.5);
+  });
+
+  it("accepts a ping with no accuracy (still optional)", async () => {
+    const driver = await createTestDriver("No Accuracy Driver");
+    driverIds.push(driver.id);
+    await gpsService.goOnline(driver.id, systemActor);
+
+    const location = await gpsService.recordPing(driver.id, { latitude: 3.1, longitude: 101.6 });
+    expect(location.accuracy).toBeNull();
+  });
+
+  it("rejects a negative accuracy value", async () => {
+    const driver = await createTestDriver("Negative Accuracy Driver");
+    driverIds.push(driver.id);
+    await gpsService.goOnline(driver.id, systemActor);
+
+    await expect(
+      gpsService.recordPing(driver.id, { latitude: 3.1, longitude: 101.6, accuracy: -1 })
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("accepts a ping while DriverPresence is ACCEPTED_JOB (not just plain AVAILABLE)", async () => {
+    const driver = await createTestDriver("Accepted Job Presence Driver");
+    driverIds.push(driver.id);
+    await gpsService.goOnline(driver.id, systemActor);
+    await prisma.driverPresence.update({ where: { driverId: driver.id }, data: { status: "ACCEPTED_JOB" } });
+
+    await expect(gpsService.recordPing(driver.id, { latitude: 3.1, longitude: 101.6 })).resolves.toBeTruthy();
+  });
+
+  it("rejects a ping while DriverPresence is BREAK, even though the legacy isOnline flag is still true", async () => {
+    const driver = await createTestDriver("Break Presence Driver");
+    driverIds.push(driver.id);
+    await gpsService.goOnline(driver.id, systemActor);
+    await prisma.driverPresence.update({ where: { driverId: driver.id }, data: { status: "BREAK" } });
+
+    await expect(
+      gpsService.recordPing(driver.id, { latitude: 3.1, longitude: 101.6 })
+    ).rejects.toThrow(ConflictError);
+
+    const reloadedDriver = await prisma.driver.findUniqueOrThrow({ where: { id: driver.id } });
+    expect(reloadedDriver.isOnline).toBe(true);
+  });
+
+  it("getDriverLocations (Admin Get Driver Locations API) only returns latest location for drivers currently reporting", async () => {
+    const reporting = await createTestDriver("Reporting Locations Driver");
+    const offline = await createTestDriver("Offline Locations Driver");
+    driverIds.push(reporting.id, offline.id);
+
+    await gpsService.goOnline(reporting.id, systemActor);
+    await gpsService.recordPing(reporting.id, { latitude: 3.15, longitude: 101.71, accuracy: 8 });
+
+    await gpsService.goOnline(offline.id, systemActor);
+    await gpsService.recordPing(offline.id, { latitude: 3.16, longitude: 101.72 });
+    await gpsService.goOffline(offline.id, systemActor);
+
+    const locations = await gpsService.getDriverLocations();
+    const reportingEntry = locations.find((l) => l.driverId === reporting.id);
+    const offlineEntry = locations.find((l) => l.driverId === offline.id);
+
+    expect(reportingEntry).toMatchObject({
+      driverId: reporting.id,
+      driverName: "Reporting Locations Driver",
+      latitude: 3.15,
+      longitude: 101.71,
+      accuracy: 8
+    });
+    expect(reportingEntry?.updatedAt).toBeInstanceOf(Date);
+    expect(offlineEntry).toBeUndefined();
   });
 });
