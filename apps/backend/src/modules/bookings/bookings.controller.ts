@@ -13,6 +13,8 @@ const legInputSchema = z.object({
   legType: legTypeSchema.optional(),
   pickupLocation: z.string().min(1).optional(),
   dropoffLocation: z.string().min(1).optional(),
+  pickupLatitude: z.coerce.number().min(-90).max(90).optional(),
+  pickupLongitude: z.coerce.number().min(-180).max(180).optional(),
   // nullable：null 代表「明确选择时间未定」，跟省略这个栏位是两回事。
   scheduledAt: z.string().datetime().nullable().optional(),
   estimatedDurationMinutes: z.coerce.number().int().positive().nullable().optional(),

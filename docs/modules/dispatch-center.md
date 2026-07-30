@@ -67,8 +67,21 @@ Online/Offline Driver 这两个数字刻意直接读 `Driver.isOnline` 这个旗
 
 浏览器手动验证：建立两笔待派车 Booking → Dispatch Center 正确显示 Statistics/Waiting 列表/Driver 列表（含即时 GPS 状态）→ 点选 Booking 后右边出现指派入口、点 Driver 直接指派成功，Statistics 跟两边列表同步更新（Waiting Booking 1→0 相应减少，Assigned+1，该 Driver 变 BUSY）→ 让 Driver Reject 该 Leg → Dispatch Center 正确把它退回 Waiting 列表并显示拒绝原因 → 直接点选、改指派给另一位 Driver，Quick Reassign 全程不用离开这个页面，全部验证通过。
 
+## Driver Matching Engine（NOT Auto Assignment）
+
+`GET /api/admin/dispatch/matching/:bookingId`——给一张 Booking 的上车点，算出最靠近、目前真的能接单的 Driver 名单，纯粹给 Dispatcher 参考排序用。**不会**建立 `DispatchOffer`、**不会**自动指派——人工指派（`legs.service.ts` 的 `assignDriver`）完全不受影响，一直都在。
+
+- 「能接单」直接对应 [Driver Presence 模块](../../apps/backend/src/modules/driverPresence/driverPresence.service.ts) 的 `status === AVAILABLE`：`PENDING_OFFER`/`ACCEPTED_JOB`/`ON_TRIP`（Busy）跟 `OFFLINE`/`BREAK` 都会被排除，一条筛选同时满足「忽略 Offline / 忽略 Busy / 忽略 Break」。跟 `getSuggestedDrivers`（旧版 Dispatch Suggested Drivers）用的 `eligibility.ts`/`gps.service.ts` 那套「GPS 心跳 ONLINE + workload IDLE」是**不同的、更新的**判断基础，两者刻意分开维护，没有互相替换。
+- Booking 若有多个 Leg（去程/回程/额外行程），取 `sequence` 最早的一个当代表性上车点，跟 `getSuggestedDrivers` 用同一个「最早的 Leg」概念，只是那支是直接给 `legId`。
+- 距离用 [`ranking.ts`](../../apps/backend/src/modules/dispatch/ranking.ts) 既有的 `haversineDistanceKm`（直线距离，不是路网距离/ETA——那些明确留到以后）。
+- **座标是可选的**：`Leg.pickupLatitude`/`pickupLongitude`（GPS Foundation 的姊妹栏位，同一轮新增）目前没有任何表单会填，留给未来的 Geocoding/地图选点功能自动写入；这个 Leg 没有座标、或候选 Driver 没有 GPS 定位时，该候选人 `distanceKm` 回 `null`，仍然会出现在名单里（用 Driver 姓名当 tie-breaker 排序），不会被排除。
+- 回传：`bookingId`/`legId`/`pickupLocation`/`pickupLatitude`/`pickupLongitude` + `candidates[]`（`rank`/`driverId`/`driverName`/`vehiclePlateNumber`/`distanceKm`/`status`/`currentBooking`/`lastGpsUpdateAt`，依距离由近到远排序）。
+
+未来的 Live Map、Nearest Driver Search、真正的 Auto Assignment、ETA 计算，都预期会直接重用这支 API 或它背后的 `matching.service.ts`，这次刻意不做地图 UI、不做路由、不算 ETA。
+
 ## 已知限制
 
 - Priority 是「等待时间」的替代讯号，不是真正可以手动设定的栏位；如果之后要让 Dispatcher 手动调整优先级，需要在 Booking 加一个真正的 `priority` 栏位（这会需要修改 Module 1 的 schema）
 - 没有地图，Driver 位置只用文字座标显示（跟 GPS 模块的第一版范围一致）
 - Waiting Booking 列表有 500 笔上限，超过这个数字的最旧项目不会显示；真的到这个规模时需要加分页
+- Driver Matching Engine 目前完全没有座标捕捉机制（没有 Geocoding、没有地图选点），实务上 `distanceKm` 目前一定是 `null`，直到未来接上其中一种座标来源为止

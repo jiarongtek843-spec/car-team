@@ -5,7 +5,7 @@ import { deriveBookingStatus } from "./bookings.status.js";
 import { calculateCommissionSplit } from "./commission.js";
 import { getFrozenAllocationSumCents, hasEarningHistory, redistributeAutoAllocations } from "./allocation.js";
 import { getCompanySettings } from "../companySettings/companySettings.service.js";
-import { assertDriverAssignable, assertLegScheduleFields } from "./legs.service.js";
+import { assertDriverAssignable, assertLegScheduleFields, assertPickupCoordinates } from "./legs.service.js";
 import { writeAuditLog, type AuditActor } from "../../common/audit.js";
 import {
   createBookingChargeWithClient,
@@ -67,6 +67,8 @@ interface CreateLegInput {
   legType?: LegType;
   pickupLocation?: string;
   dropoffLocation?: string;
+  pickupLatitude?: number;
+  pickupLongitude?: number;
   // undefined = 没带这个栏位；null = 明确选择「时间未定」；string = 实际时间。
   scheduledAt?: string | null;
   estimatedDurationMinutes?: number | null;
@@ -126,6 +128,7 @@ export async function createBooking(input: CreateBookingInput, actor: AuditActor
     if (leg.driverId !== undefined) {
       await assertDriverAssignable(leg.driverId);
     }
+    assertPickupCoordinates(leg);
     assertLegScheduleFields({
       scheduledAt: leg.resolvedScheduledAt,
       estimatedDurationMinutes: leg.estimatedDurationMinutes,
@@ -158,6 +161,8 @@ export async function createBooking(input: CreateBookingInput, actor: AuditActor
                 legType: leg.legType,
                 pickupLocation: leg.pickupLocation,
                 dropoffLocation: leg.dropoffLocation,
+                pickupLatitude: leg.pickupLatitude,
+                pickupLongitude: leg.pickupLongitude,
                 scheduledAt: leg.resolvedScheduledAt,
                 estimatedDurationMinutes: leg.estimatedDurationMinutes,
                 estimatedFinishAt: leg.resolvedEstimatedFinishAt,

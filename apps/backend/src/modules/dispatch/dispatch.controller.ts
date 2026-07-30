@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import * as dispatchService from "./dispatch.service.js";
 import * as dispatchOfferService from "./dispatchOffer.service.js";
+import * as matchingService from "./matching.service.js";
 import { parseIdParam } from "../../common/params.js";
 import { actorFromRequest } from "../../common/audit.js";
 
@@ -54,4 +55,10 @@ export async function offersForLeg(req: Request, res: Response) {
   const legId = parseIdParam(req.params.legId);
   const offers = await dispatchOfferService.listOffersForLeg(legId);
   res.json(offers);
+}
+
+export async function matching(req: Request, res: Response) {
+  const bookingId = parseIdParam(req.params.bookingId);
+  const result = await matchingService.matchDriversForBooking(bookingId);
+  res.json(result);
 }

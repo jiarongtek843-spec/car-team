@@ -12,10 +12,15 @@ const scheduledAtSchema = z.string().datetime().nullable().optional();
 const estimatedFinishAtSchema = z.string().datetime().nullable().optional();
 const estimatedDurationMinutesSchema = z.coerce.number().int().positive().nullable().optional();
 
+const pickupLatitudeSchema = z.coerce.number().min(-90).max(90).optional();
+const pickupLongitudeSchema = z.coerce.number().min(-180).max(180).optional();
+
 const addLegSchema = z.object({
   legType: legTypeSchema.optional(),
   pickupLocation: z.string().min(1).optional(),
   dropoffLocation: z.string().min(1).optional(),
+  pickupLatitude: pickupLatitudeSchema,
+  pickupLongitude: pickupLongitudeSchema,
   scheduledAt: scheduledAtSchema,
   estimatedDurationMinutes: estimatedDurationMinutesSchema,
   estimatedFinishAt: estimatedFinishAtSchema,
@@ -28,6 +33,8 @@ const updateLegSchema = z.object({
   legType: legTypeSchema.optional(),
   pickupLocation: z.string().min(1).optional(),
   dropoffLocation: z.string().min(1).optional(),
+  pickupLatitude: pickupLatitudeSchema,
+  pickupLongitude: pickupLongitudeSchema,
   scheduledAt: scheduledAtSchema,
   estimatedDurationMinutes: estimatedDurationMinutesSchema,
   estimatedFinishAt: estimatedFinishAtSchema,

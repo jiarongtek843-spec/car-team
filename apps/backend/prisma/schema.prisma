@@ -437,6 +437,11 @@ model Leg {
   driver          Driver?   @relation(fields: [driverId], references: [id])
   pickupLocation  String?   @map("pickup_location")
   dropoffLocation String?   @map("dropoff_location")
+  // Driver Matching Engine：目前没有任何 UI 让 Dispatcher 手动输入座标——刻意保留给未来
+  // 的 Geocoding/地图选点功能自动写入，跟 pickupLocation 这个自由文字栏位一起存。没有座标
+  // 时 Matching Engine 一样能跑，只是回传的每个候选人 distanceKm 会是 null（见 ranking.ts）。
+  pickupLatitude  Float?    @map("pickup_latitude")
+  pickupLongitude Float?    @map("pickup_longitude")
   scheduledAt     DateTime? @map("scheduled_at")
   notes           String?
   status          LegStatus @default(PENDING)

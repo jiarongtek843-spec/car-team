@@ -87,6 +87,10 @@ interface AddLegInput {
   legType?: LegType;
   pickupLocation?: string;
   dropoffLocation?: string;
+  // Driver Matching Engine：目前没有任何表单会填这两个栏位——留给未来的 Geocoding/
+  // 地图选点功能自动带入，跟 pickupLocation 一起存。
+  pickupLatitude?: number;
+  pickupLongitude?: number;
   // undefined = 没带这个栏位；null = 明确选择「时间未定」；string = 实际时间。
   scheduledAt?: string | null;
   estimatedDurationMinutes?: number | null;
@@ -117,6 +121,16 @@ function resolveEstimatedFinishAt(estimatedFinishAt: string | null | undefined):
  * 独立存，前端会自动帮忙算好 Finish Time 填入，但这里仍然要在后端把关，避免任何
  * 前端算错或直接打 API 的情况留下不合理的资料。
  */
+/** Driver Matching Engine：座标若有值就得是合法的经纬度范围，跟 gps.service.ts 的检查一致。 */
+export function assertPickupCoordinates(input: { pickupLatitude?: number; pickupLongitude?: number }) {
+  if (input.pickupLatitude !== undefined && (input.pickupLatitude < -90 || input.pickupLatitude > 90)) {
+    throw new ValidationError("pickupLatitude must be between -90 and 90");
+  }
+  if (input.pickupLongitude !== undefined && (input.pickupLongitude < -180 || input.pickupLongitude > 180)) {
+    throw new ValidationError("pickupLongitude must be between -180 and 180");
+  }
+}
+
 export function assertLegScheduleFields(input: {
   scheduledAt?: Date | null;
   estimatedDurationMinutes?: number | null;
@@ -150,6 +164,7 @@ export async function addLeg(bookingId: number, input: AddLegInput) {
     estimatedDurationMinutes: input.estimatedDurationMinutes,
     estimatedFinishAt
   });
+  assertPickupCoordinates(input);
 
   await prisma.$transaction(async (tx) => {
     if (input.earningAllocationCents !== undefined) {
@@ -168,6 +183,8 @@ export async function addLeg(bookingId: number, input: AddLegInput) {
         legType: input.legType,
         pickupLocation: input.pickupLocation,
         dropoffLocation: input.dropoffLocation,
+        pickupLatitude: input.pickupLatitude,
+        pickupLongitude: input.pickupLongitude,
         scheduledAt,
         estimatedDurationMinutes: input.estimatedDurationMinutes,
         estimatedFinishAt,
@@ -188,6 +205,8 @@ interface UpdateLegInput {
   legType?: LegType;
   pickupLocation?: string;
   dropoffLocation?: string;
+  pickupLatitude?: number;
+  pickupLongitude?: number;
   scheduledAt?: string | null;
   estimatedDurationMinutes?: number | null;
   estimatedFinishAt?: string | null;
@@ -209,6 +228,7 @@ export async function updateLeg(bookingId: number, legId: number, input: UpdateL
       input.estimatedDurationMinutes !== undefined ? input.estimatedDurationMinutes : leg.estimatedDurationMinutes,
     estimatedFinishAt: estimatedFinishAt !== undefined ? estimatedFinishAt : leg.estimatedFinishAt
   });
+  assertPickupCoordinates(input);
 
   await prisma.$transaction(async (tx) => {
     if (input.earningAllocationCents !== undefined) {
@@ -227,6 +247,8 @@ export async function updateLeg(bookingId: number, legId: number, input: UpdateL
         legType: input.legType,
         pickupLocation: input.pickupLocation,
         dropoffLocation: input.dropoffLocation,
+        pickupLatitude: input.pickupLatitude,
+        pickupLongitude: input.pickupLongitude,
         scheduledAt,
         estimatedDurationMinutes: input.estimatedDurationMinutes,
         estimatedFinishAt,
