@@ -2,7 +2,7 @@
 // 跟提供离线时打开 App 至少看得到壳、不是白屏这两件事，不做完整离线优先的资料同步——
 // 这个专案的资料（Booking/Wallet/Dispatch）时效性很高，永远该走网路拿最新的，不该被快取
 // 骗过去，所以 API（/api/...）一律略过、直接打网路，只有静态资源走快取。
-const CACHE_NAME = "car-team-shell-v1";
+const CACHE_NAME = "car-team-shell-v2";
 const APP_SHELL = ["/", "/manifest.json", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -32,6 +32,28 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // 导航请求（也就是 index.html 本身）一定要先打网路——先前是「有快取就先回快取、背景才
+  // 更新」，PWA 装到主屏幕后几乎不会整个关掉重开，导致每次打开看到的永远是「上一次」部署
+  // 的版本，新功能要重开两次才会出现，使用者会以为部署没生效。改成先打网路拿最新的
+  // index.html（它 reference 的 JS/CSS 檔名每次 build 都带 content hash，一定是最新的），
+  // 只有离线连不上网路时才退回快取当保底、不会白屏。
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached ?? caches.match("/")))
+    );
+    return;
+  }
+
+  // 其他静态资源（JS/CSS/圖片）維持 cache-first + 背景更新——這些檔名都帶 content hash，
+  // 一旦快取到的版本本來就不會變，用快取換取速度沒有「看到舊版」的風險。
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const network = fetch(event.request)
