@@ -109,27 +109,42 @@ export async function goOnline(driverId: number, actor: AuditActor) {
     throw new NotFoundError(`Driver ${driverId} not found`);
   }
 
-  const updated = await prisma.driver.update({
-    where: { id: driverId },
-    data: { isOnline: true, onlineSince: new Date() }
-  });
+  // driver.isOnline 跟 DriverPresence.status（透过 createActivity 的 Listener 同步更新）
+  // 原本是各自独立的两次写入——中间任何一步失败（连线中断、Process 重启等），isOnline 已经
+  // 写进去但 Presence 没跟上，两边就会永久卡在不一致的状态，且因为司机已经离线不会再有
+  // 后续事件把它纠正回来（Live Dispatch Map 上会看到一个已离线的司机持续被画成 Available）。
+  // 包进同一个 Transaction，两边保证同进同退。
+  const updated = await prisma.$transaction(async (tx) => {
+    const result = await tx.driver.update({
+      where: { id: driverId },
+      data: { isOnline: true, onlineSince: new Date() }
+    });
 
-  await writeAuditLog({
-    actor,
-    action: "DRIVER_WENT_ONLINE",
-    entityType: "Driver",
-    entityId: driverId,
-    afterData: { isOnline: true }
-  });
+    await writeAuditLog(
+      {
+        actor,
+        action: "DRIVER_WENT_ONLINE",
+        entityType: "Driver",
+        entityId: driverId,
+        afterData: { isOnline: true }
+      },
+      tx
+    );
 
-  await createActivity({
-    module: "GPS",
-    activityType: "DRIVER_ONLINE",
-    entityType: "Driver",
-    entityId: driverId,
-    summary: "Driver went online",
-    actor: { userId: actor.id },
-    subjectDriverId: driverId
+    await createActivity(
+      {
+        module: "GPS",
+        activityType: "DRIVER_ONLINE",
+        entityType: "Driver",
+        entityId: driverId,
+        summary: "Driver went online",
+        actor: { userId: actor.id },
+        subjectDriverId: driverId
+      },
+      tx
+    );
+
+    return result;
   });
 
   return updated;
@@ -141,27 +156,39 @@ export async function goOffline(driverId: number, actor: AuditActor) {
     throw new NotFoundError(`Driver ${driverId} not found`);
   }
 
-  const updated = await prisma.driver.update({
-    where: { id: driverId },
-    data: { isOnline: false, onlineSince: null }
-  });
+  // 同 goOnline 的理由：isOnline 写入跟 DriverPresence 同步都包进同一个 Transaction，
+  // 避免两者跟丢导致 Live Dispatch Map 显示已离线的司机仍是 Available（绿色）。
+  const updated = await prisma.$transaction(async (tx) => {
+    const result = await tx.driver.update({
+      where: { id: driverId },
+      data: { isOnline: false, onlineSince: null }
+    });
 
-  await writeAuditLog({
-    actor,
-    action: "DRIVER_WENT_OFFLINE",
-    entityType: "Driver",
-    entityId: driverId,
-    afterData: { isOnline: false }
-  });
+    await writeAuditLog(
+      {
+        actor,
+        action: "DRIVER_WENT_OFFLINE",
+        entityType: "Driver",
+        entityId: driverId,
+        afterData: { isOnline: false }
+      },
+      tx
+    );
 
-  await createActivity({
-    module: "GPS",
-    activityType: "DRIVER_OFFLINE",
-    entityType: "Driver",
-    entityId: driverId,
-    summary: "Driver went offline",
-    actor: { userId: actor.id },
-    subjectDriverId: driverId
+    await createActivity(
+      {
+        module: "GPS",
+        activityType: "DRIVER_OFFLINE",
+        entityType: "Driver",
+        entityId: driverId,
+        summary: "Driver went offline",
+        actor: { userId: actor.id },
+        subjectDriverId: driverId
+      },
+      tx
+    );
+
+    return result;
   });
 
   return updated;

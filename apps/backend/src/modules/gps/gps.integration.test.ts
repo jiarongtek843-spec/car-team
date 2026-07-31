@@ -3,6 +3,7 @@ import { prisma } from "../../config/prisma.js";
 import * as bookingsService from "../bookings/bookings.service.js";
 import * as driverJobsService from "../driverJobs/driverJobs.service.js";
 import * as gpsService from "./gps.service.js";
+import * as driverPresenceService from "../driverPresence/driverPresence.service.js";
 import { ConflictError, ValidationError } from "../../common/errors.js";
 import type { AuditActor } from "../../common/audit.js";
 
@@ -51,6 +52,27 @@ describe("GPS live tracking (Module 5 scenarios)", () => {
     const offline = await gpsService.goOffline(driver.id, systemActor);
     expect(offline.isOnline).toBe(false);
     expect(offline.onlineSince).toBeNull();
+  });
+
+  it("goOffline 之后 driver.isOnline 跟 DriverPresence.status 一定同步成 OFFLINE，不会卡在离线前的 AVAILABLE（Live Dispatch Map 显示错误的根因）", async () => {
+    const driver = await createTestDriver("Presence Sync Driver");
+    driverIds.push(driver.id);
+
+    await gpsService.goOnline(driver.id, systemActor);
+    const onlinePresence = await driverPresenceService.getPresenceForDriver(driver.id);
+    expect(onlinePresence?.status).toBe("AVAILABLE");
+
+    const offline = await gpsService.goOffline(driver.id, systemActor);
+    expect(offline.isOnline).toBe(false);
+
+    const offlinePresence = await driverPresenceService.getPresenceForDriver(driver.id);
+    expect(offlinePresence?.status).toBe("OFFLINE");
+    expect(offlinePresence?.currentBooking).toBeNull();
+    expect(offlinePresence?.currentLeg).toBeNull();
+
+    const list = await driverPresenceService.listPresence();
+    const entry = list.find((d) => d.driverId === driver.id);
+    expect(entry?.status).toBe("OFFLINE");
   });
 
   it("Mobile UAT Bug Fix：goOnline 之后立刻查 getDriverPresence（不用等任何 GPS ping）就是 ONLINE，不是 OFFLINE/undefined", async () => {
