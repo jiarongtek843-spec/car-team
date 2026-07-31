@@ -43,12 +43,16 @@ const LEG_TYPE_OPTIONS = (Object.keys(LEG_TYPE_LABEL) as LegType[]).map((value) 
 // 新建 Booking 预设直接给去程 + 回程两个 Leg——这是核心业务资料（几点载去、几点载回），
 // 不该让使用者手动想到要自己加。之后仍然可以用「+ 新增行程」加第三个 ADDITIONAL Leg，
 // 也可以把预设的两个都删掉（例如这张 Booking 目前还不知道任何行程细节）。
-// 去程起点 / 回程终点默认都是公司基地「28」，符合实际业务流程——大多数行程都是从 28
-// 出发、最后回到 28，中间才是客人真正的地址。
+// 去程起点 / 回程终点默认都是公司基地——大多数行程都是从这里出发、最后回到这里，中间
+// 才是客人真正的地址。用完整名称「28 BLVD」而不是单纯「28」，因为这段文字现在也会拿去
+// 组 Waze / Google Maps 导航连结（LocationLink），只写「28」地图完全搜不到，「28 BLVD」
+// 至少是个可以被搜到的地标名称。
+const DEFAULT_BASE_LOCATION = "28 BLVD";
+
 function defaultLegs(): FormLeg[] {
   return [
-    { legType: "OUTBOUND", pickupLocation: "28" },
-    { legType: "RETURN", dropoffLocation: "28" }
+    { legType: "OUTBOUND", pickupLocation: DEFAULT_BASE_LOCATION },
+    { legType: "RETURN", dropoffLocation: DEFAULT_BASE_LOCATION }
   ];
 }
 
@@ -159,9 +163,9 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
         if (legType === "RETURN") {
           return {
             legType,
-            // 识别到地址就覆盖默认值；没识别到就用去程终点，去程也没有的话保留「28」。
-            pickupLocation: leg.pickupLocation ?? outboundParsed?.dropoffLocation ?? "28",
-            dropoffLocation: leg.dropoffLocation ?? "28",
+            // 识别到地址就覆盖默认值；没识别到就用去程终点，去程也没有的话保留基地地址。
+            pickupLocation: leg.pickupLocation ?? outboundParsed?.dropoffLocation ?? DEFAULT_BASE_LOCATION,
+            dropoffLocation: leg.dropoffLocation ?? DEFAULT_BASE_LOCATION,
             scheduledDate: returnPickup,
             scheduledTime: returnPickup
           };
@@ -169,7 +173,7 @@ export function CreateBookingModal({ open, onClose }: { open: boolean; onClose: 
 
         return {
           legType,
-          pickupLocation: leg.pickupLocation ?? (legType === "OUTBOUND" ? "28" : undefined),
+          pickupLocation: leg.pickupLocation ?? (legType === "OUTBOUND" ? DEFAULT_BASE_LOCATION : undefined),
           dropoffLocation: leg.dropoffLocation,
           scheduledDate: leg.scheduledAt,
           scheduledTime: leg.scheduledAt,

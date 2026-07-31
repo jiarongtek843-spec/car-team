@@ -78,7 +78,7 @@ describe("CreateBookingModal（手机建单成功，对应 Booking 手机要求�
     );
   });
 
-  it("Mobile UAT Round 2：去程默认起点 28、回程默认终点 28，会一起送到后端", async () => {
+  it("Mobile UAT Round 2：去程默认起点、回程默认终点是「28 BLVD」，会一起送到后端", async () => {
     vi.mocked(http.post).mockResolvedValueOnce({ id: 45, girlName: "Default Location Test" });
     renderWithProviders(<CreateBookingModal open onClose={() => {}} />, { route: "/" });
 
@@ -90,8 +90,8 @@ describe("CreateBookingModal（手机建单成功，对应 Booking 手机要求�
         "/api/bookings",
         expect.objectContaining({
           legs: [
-            expect.objectContaining({ legType: "OUTBOUND", pickupLocation: "28" }),
-            expect.objectContaining({ legType: "RETURN", dropoffLocation: "28" })
+            expect.objectContaining({ legType: "OUTBOUND", pickupLocation: "28 BLVD" }),
+            expect.objectContaining({ legType: "RETURN", dropoffLocation: "28 BLVD" })
           ]
         })
       )
