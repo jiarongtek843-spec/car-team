@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Space, Tag, Typography, message } from "antd";
+import { Button, Card, Space, Tag, Typography, message } from "antd";
 import { useAcceptOfferMutation, useDeclineOfferMutation, useMyOffersQuery } from "../hooks";
 import { formatLegDateTime } from "../../../lib/schedule";
 import { LocationLink } from "../../../common/LocationLink";
@@ -35,12 +35,6 @@ export function PendingOffersPanel() {
             {offer.distanceKm !== null && (
               <Typography.Text type="secondary">距离约 {offer.distanceKm.toFixed(1)} km</Typography.Text>
             )}
-            <Alert
-              type="warning"
-              showIcon
-              message="先接先赢，逾时或被其他司机抢先会自动失效"
-              style={{ marginTop: 4 }}
-            />
             <Space style={{ marginTop: 8 }}>
               <Button
                 type="primary"
