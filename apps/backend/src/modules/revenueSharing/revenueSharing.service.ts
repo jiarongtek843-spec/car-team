@@ -11,6 +11,7 @@ import {
   type RevenueRuleConfig
 } from "./revenueSharing.calculator.js";
 import { createRevenueSharePayouts } from "../wallet/wallet.service.js";
+import { roundToNearestCent } from "../../common/money.js";
 
 type TxClient = Prisma.TransactionClient | typeof prisma;
 
@@ -97,6 +98,66 @@ function buildAllocationWeights(
     driverId: leg.driverId,
     earningAllocationCents: hasExplicitAllocation ? leg.earningAllocationCents ?? 0 : 1
   }));
+}
+
+/**
+ * payoutForCompletedLeg 专用：算「这条刚完成的 Leg，现在该拿多少钱」。
+ *
+ * 跟 finalizeRevenueSharing/loadEligibleLegsForAllocation 那条路径不一样——那边是整张
+ * Booking 所有 Leg 都已经跑完、一次性分完整个 Pool，`allocateDriverPool` 的「最后一笔吃
+ * 余数」写法在那个情境下是对的。但 payoutForCompletedLeg 是「每条 Leg 各自完成的当下」
+ * 分批发放，如果沿用同一套 loadEligibleLegsForAllocation（只看「已指派 Driver」的 Leg）
+ * 当权重分母，会在回程 Leg 还没被指派/接单之前，让去程 Leg 誤以为自己是唯一一条 Leg、
+ * 拿走整个 Driver Pool——回程之后再完成时，同一个 Pool 又被重新分一次，两笔加起来超发
+ * （这正是 2026-07 Railway 生产环境回报的 RM68 vs RM34 Bug 的实际成因）。
+ *
+ * 正确做法：权重分母要跟 redistributeAutoAllocations 用同一个定义——这张 Booking「所有
+ * 未取消」的 Leg（不限已指派 Driver 的），才能让去程即使在回程还没指派时完成，也只拿到
+ * 自己该有的那一份，把剩下的份额留给回程之后领。已经发放过的金额（其他 Leg 的
+ * WalletTransaction）视为锁定不动——从 Pool 里扣掉之后，剩下的才拿来在「还没领过」的
+ * Leg 之间按权重分（最后一条还没领的 Leg 拿剩余全部，避免多条 Leg 各自四舍五入导致总和
+ * 跟 Pool 对不上）。
+ */
+async function computeIncrementalPayoutForLeg(tx: TxClient, bookingId: number, legId: number, driverPoolCents: number) {
+  const allLegs = await tx.leg.findMany({
+    where: { bookingId, status: { not: "CANCELLED" } },
+    select: { id: true, earningAllocationCents: true }
+  });
+
+  const paidLegIds = new Set(
+    (
+      await tx.walletTransaction.findMany({
+        where: { bookingId, transactionType: "REVENUE_SHARE_PAYOUT", legId: { not: null } },
+        select: { legId: true }
+      })
+    ).map((t) => t.legId)
+  );
+
+  const hasExplicitAllocation = allLegs.some((leg) => (leg.earningAllocationCents ?? 0) > 0);
+  const weightOf = (leg: { earningAllocationCents: number | null }) =>
+    hasExplicitAllocation ? leg.earningAllocationCents ?? 0 : 1;
+
+  const paidSum = await tx.walletTransaction.aggregate({
+    where: { bookingId, transactionType: "REVENUE_SHARE_PAYOUT" },
+    _sum: { amountCents: true }
+  });
+  const remainingPoolCents = driverPoolCents - (paidSum._sum.amountCents ?? 0);
+
+  const unpaidLegs = allLegs.filter((leg) => !paidLegIds.has(leg.id));
+  const thisLeg = unpaidLegs.find((leg) => leg.id === legId);
+  if (!thisLeg) {
+    return null;
+  }
+
+  if (unpaidLegs.length === 1) {
+    return remainingPoolCents;
+  }
+
+  const unpaidWeightTotal = unpaidLegs.reduce((sum, leg) => sum + weightOf(leg), 0);
+  if (unpaidWeightTotal <= 0) {
+    return 0;
+  }
+  return roundToNearestCent((remainingPoolCents * weightOf(thisLeg)) / unpaidWeightTotal);
 }
 
 /** Preview 是纯计算、零副作用——不写 Snapshot、不动 Booking 财务状态、不发 Wallet，任何时候都可以重复调用。 */
@@ -344,17 +405,26 @@ export async function payoutForCompletedLeg(
     );
   }
 
-  const legs = await loadEligibleLegsForAllocation(tx, input.bookingId);
-  const allocations = allocateDriverPool(snapshot.driverPoolCents, buildAllocationWeights(legs));
-  const forThisLeg = allocations.find((allocation) => allocation.legId === input.legId);
+  const amountCents = await computeIncrementalPayoutForLeg(tx, input.bookingId, input.legId, snapshot.driverPoolCents);
+  if (amountCents === null) {
+    // 这条 Leg 已经领过（WalletTransaction 已存在）——理论上不该发生（applyLegTransition
+    // 加上 @@unique([legId, transactionType]) 已经双重挡住重复 Complete），这里只是
+    // 再多一层防御，静默跳过而不是让整个 Complete 失败。
+    return null;
+  }
 
-  if (!forThisLeg) {
+  const leg = await tx.leg.findUniqueOrThrow({ where: { id: input.legId }, select: { driverId: true } });
+  if (!leg.driverId) {
     return null;
   }
 
   const [payout] = await createRevenueSharePayouts(
     tx,
-    { bookingId: input.bookingId, revenueSnapshotId: snapshot.id, allocations: [forThisLeg] },
+    {
+      bookingId: input.bookingId,
+      revenueSnapshotId: snapshot.id,
+      allocations: [{ legId: input.legId, driverId: leg.driverId, amountCents }]
+    },
     actor
   );
 

@@ -20,6 +20,8 @@ import { findEligibleDrivers } from "./eligibility.js";
 import { rankDrivers } from "./ranking.js";
 import { listDispatchDrivers } from "./dispatch.service.js";
 import { createActivity } from "../activityLog/activityLog.service.js";
+import { UNFINISHED_LEG_STATUSES } from "../bookings/bookings.status.js";
+import { legsOverlap } from "./legOverlap.js";
 
 /** Leg 处在这两个状态才算「还在等派车」，跟 dispatch.service.ts 的 WAITING_STATUSES 是同一个概念。 */
 const WAITING_LEG_STATUSES = ["PENDING", "REJECTED"] as const;
@@ -135,6 +137,14 @@ export async function acceptOffer(driverId: number, offerId: number) {
   const now = new Date();
 
   const leg = await prisma.$transaction(async (tx) => {
+    // 同一个 Driver 可能同时对两个不同 Leg 按 Accept（两个 Request 各自的 Transaction）——
+    // 光靠下面的 Offer/Leg 条件式 UPDATE 挡不住这种情况，因为两个 Request 检查的是不同
+    // Offer/Leg row，彼此不会互相冲突。这里额外锁住 Driver row，逼第二个 Request 排队等
+    // 第一个 Transaction 提交（含下面的冲突检查跟 Leg 指派）完才能继续读，这样冲突检查
+    // 读到的一定是「最新」的这个 Driver 现有行程，不会有两个 Request 都读到「冲突前」的
+    // 状态一起通过。
+    await tx.$queryRaw`SELECT id FROM "drivers" WHERE id = ${driverId} FOR UPDATE`;
+
     const result = await tx.dispatchOffer.updateMany({
       where: { id: offerId, driverId, status: "PENDING", expiresAt: { gt: now } },
       data: { status: "ACCEPTED", respondedAt: now }
@@ -144,6 +154,23 @@ export async function acceptOffer(driverId: number, offerId: number) {
     }
 
     const offer = await tx.dispatchOffer.findUniqueOrThrow({ where: { id: offerId } });
+    const targetLeg = await tx.leg.findUniqueOrThrow({ where: { id: offer.legId } });
+
+    // 核心规则：这个 Driver 已经有别的 Booking 底下、时间会撞在一起的行程时，不能再接。
+    // 同一个 Booking 底下的其他 Leg（例如去程/回程都指派给同一个 Driver）刻意排除在外，
+    // 那是既有合法工作流程，不是这条规则要挡的对象。
+    const otherActiveLegs = await tx.leg.findMany({
+      where: {
+        driverId,
+        status: { in: UNFINISHED_LEG_STATUSES },
+        bookingId: { not: targetLeg.bookingId }
+      },
+      select: { scheduledAt: true, estimatedDurationMinutes: true, estimatedFinishAt: true }
+    });
+    const hasConflict = otherActiveLegs.some((other) => legsOverlap(targetLeg, other));
+    if (hasConflict) {
+      throw new ConflictError("This job overlaps with another job you already have");
+    }
 
     const updatedLeg = await applyLegTransition({
       legId: offer.legId,
