@@ -134,9 +134,21 @@ export function DriverPresenceToggle({ light }: { light?: boolean } = {}) {
       // 通知权限一定要在使用者主动操作的当下问，不能自己在背景偷问，浏览器会直接忽略。
       // 不 await、不挡住上线流程本身：就算 Driver 拒绝权限或浏览器不支援，也只是「收不到
       // 推播通知」，完全不影响正常接单，不该因为这个让整个上线操作看起来卡住或失败。
+      //
+      // 每一种结果都要显示出来（不是只挑 denied）：Railway 实测发现「完全没跳出系统询问框、
+      // 也没有任何提示」这种情境——原本 unsupported/no-vapid-key 这两种安静略过，Driver
+      // 跟排查的人完全看不出来到底是浏览器不支援、后端还没设定 VAPID Key、还是权限被拒绝，
+      // 三种原因排查起来天差地远，不该让它们看起来一样「什么都没发生」。
       void ensurePushSubscription().then((result) => {
         if (result === "denied") {
           message.info({ content: "已上线，但你拒绝了通知权限，之后不会收到新工作的推播提醒", duration: 5 });
+        } else if (result === "unsupported") {
+          message.info({
+            content: "已上线，但这个浏览器/装置不支援推播通知（iPhone 需要 iOS 16.4 以上，且要从主屏幕图标打开，不能是浏览器分页）",
+            duration: 6
+          });
+        } else if (result === "no-vapid-key") {
+          message.info({ content: "已上线，但系统还没设定好推播功能，请联系管理员", duration: 5 });
         }
       });
     } else {
