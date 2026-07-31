@@ -5,9 +5,17 @@ import * as notificationService from "./notification.service.js";
 
 const audienceSchema = z.enum(["DRIVER", "DISPATCHER", "ADMIN"]);
 
+// z.coerce.boolean() 对字串一律用 JS 的 Boolean() 转换——非空字串永远是 truthy，
+// 所以查询字串 isRead=false 会被转成 true，isRead=false 这个过滤条件实际上完全用不了
+// （永远查到已读的，不是未读的）。要正确处理 "true"/"false" 字面字串，只能自己转换。
+const isReadParam = z
+  .enum(["true", "false"])
+  .optional()
+  .transform((v) => (v === undefined ? undefined : v === "true"));
+
 const listQuerySchema = z.object({
   audience: audienceSchema.optional(),
-  isRead: z.coerce.boolean().optional(),
+  isRead: isReadParam,
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20)
 });

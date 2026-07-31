@@ -36,6 +36,15 @@ export function DriverNotificationBell() {
     // RequireAuth.tsx 的 portal 隔离），所以这里不做 relatedBookingId 导航，只标已读。
   }
 
+  function handleOpen() {
+    setOpen(true);
+    // 打开面板本身就代表「看过了」——之前角标只在逐条点击时才归零，使用者反馈
+    // 打开面板扫过一遍讯息、没有一条一条点，角标数字完全不会变，看起来像是坏掉。
+    if ((unreadCount ?? 0) > 0) {
+      markAllRead.mutate();
+    }
+  }
+
   return (
     <>
       <Badge count={unreadCount ?? 0} size="small" offset={[-4, 4]}>
@@ -43,7 +52,7 @@ export function DriverNotificationBell() {
           type="text"
           aria-label="通知"
           icon={<BellOutlined style={{ color: "#fff", fontSize: 18 }} />}
-          onClick={() => setOpen(true)}
+          onClick={handleOpen}
           style={{ minWidth: 44, minHeight: 44 }}
         />
       </Badge>

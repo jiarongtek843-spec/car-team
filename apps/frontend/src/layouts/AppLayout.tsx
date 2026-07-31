@@ -53,7 +53,13 @@ export function AppLayout() {
     <Layout className="app-full-height">
       <Header
         className="safe-area-top"
-        style={{ display: "flex", alignItems: "center", paddingInline: isMobile ? 16 : undefined }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          paddingInline: isMobile ? 16 : undefined,
+          height: "auto",
+          minHeight: 64
+        }}
       >
         {isMobile && (
           <Button
