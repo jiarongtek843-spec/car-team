@@ -21,6 +21,7 @@ import { bookingChargeRouter } from "./modules/bookingCharges/bookingCharge.rout
 import { revenueSharingRouter } from "./modules/revenueSharing/revenueSharing.routes.js";
 import { notificationRouter } from "./modules/notifications/notification.routes.js";
 import { driverNotificationRouter } from "./modules/notifications/driverNotification.routes.js";
+import { pushRouter } from "./modules/notifications/push.routes.js";
 import { driverPresenceRouter as driverPresenceStatusRouter } from "./modules/driverPresence/driverPresence.routes.js";
 import { errorHandler } from "./common/errorHandler.js";
 import { requireAuth } from "./modules/auth/auth.middleware.js";
@@ -76,6 +77,7 @@ app.use("/api/admin/booking-charges", bookingChargeRouter);
 app.use("/api/admin/revenue-sharing", revenueSharingRouter);
 app.use("/api/notifications", notificationRouter);
 app.use("/api/driver/notifications", driverNotificationRouter);
+app.use("/api/driver/push", pushRouter);
 app.use("/api/admin/driver-presence", driverPresenceStatusRouter);
 
 app.use(errorHandler);

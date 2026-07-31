@@ -294,6 +294,7 @@ model Driver {
   activityLogsAsSubject ActivityLog[] @relation("ActivityLogSubjectDriver")
   notifications         Notification[]
   presence              DriverPresence?
+  pushSubscriptions     PushSubscription[]
 
   @@map("drivers")
 }
@@ -994,6 +995,25 @@ model Notification {
   @@index([audience, isRead, createdAt])
   @@index([relatedBookingId])
   @@map("notifications")
+}
+
+// Web Push（2026-07）：让 Driver 在没开着网页、甚至没打开 App 的情况下也能收到出单等通知的
+// 推播订阅——一个 Driver 可能同时在好几台装置/浏览器上都按过「开启通知」，所以是 1:N
+// 不是 1:1。endpoint 本身就是浏览器帮这个装置+这次订阅产生的唯一网址，天生就是这张表最
+// 自然的 unique key；p256dh/auth 是加密这个 Driver 专属推播内容需要的两把 Key，跟
+// endpoint 一起来自前端 `PushSubscription.toJSON()`，原封不动存起来即可，不需要另外解析。
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  driverId  Int      @map("driver_id")
+  driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([driverId])
+  @@map("push_subscriptions")
 }
 
 // Driver Presence（2026-07，UAT 稳定化阶段）：在 GPS/Auto Assignment 之前先建立「司机现在

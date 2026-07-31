@@ -47,3 +47,46 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
+
+// Web Push（出单等事件要在 Driver 没开着网页时也能收到）：后端 push.service.ts 送出的
+// payload 就是纯 JSON { title, body, url }，这里原样拿来当系统通知显示——是唯一能在网页
+// 完全没开、甚至浏览器整个关掉的情况下还跳出通知的机制（跟一般网页背景计时器不一样，
+// Push 是浏览器厂商在系统层级帮忙代收代转）。
+self.addEventListener("push", (event) => {
+  let payload = { title: "车队管理系统", body: "有新的通知" };
+  try {
+    if (event.data) {
+      payload = { ...payload, ...event.data.json() };
+    }
+  } catch {
+    // 收到非 JSON 内容（理论上不会发生，因为送的一端固定是 JSON.stringify），退回预设文案。
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      data: { url: payload.url ?? "/" }
+    })
+  );
+});
+
+// 点通知：已经有分页开着就切过去（同时导航到目标网址），完全没开就开一个新的——这是
+// Web Notification API 标准的「聚焦既有分页优先」写法，避免每点一次通知就多开一个分页。
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url ?? "/";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(targetUrl);
+    })
+  );
+});

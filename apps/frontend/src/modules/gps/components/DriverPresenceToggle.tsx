@@ -3,6 +3,7 @@ import { Space, Switch, Typography, message } from "antd";
 import { useGoOfflineMutation, useGoOnlineMutation, useMyPresenceQuery } from "../hooks";
 import * as gpsApi from "../api";
 import { useCompanySettings } from "../../companySettings/CompanySettingsContext";
+import { ensurePushSubscription, clearPushSubscription } from "../../push/subscribe";
 
 /** Company Settings 还没加载完成时的保底值，跟 schema 的 gpsUploadIntervalSeconds default 一致。 */
 const DEFAULT_PING_INTERVAL_MS = 5000;
@@ -89,6 +90,15 @@ export function DriverPresenceToggle({ light }: { light?: boolean } = {}) {
       sendOnePing();
       intervalRef.current = window.setInterval(sendOnePing, pingIntervalMs);
     }
+    // 通知权限一旦已经是 granted（例如上次上线时同意过），重新订阅不需要使用者手势，
+    // 补这一段是为了处理「Driver 重新整理网页/重开分页，presence 一读回来发现自己还是
+    // Online」的情境——不补的话，除非重新手动切一次 Offline/Online，否则浏览器换了
+    // Service Worker 的这份订阅就不会重新建立，推播会悄悄失效。permission !== "granted"
+    // 时（还没问过或已经被拒绝）都不呼叫，避免意外触发浏览器的权限询问。
+    if (isOnline && "Notification" in window && Notification.permission === "granted") {
+      void ensurePushSubscription();
+    }
+
     return () => {
       if (intervalRef.current !== null) {
         window.clearInterval(intervalRef.current);
@@ -117,14 +127,27 @@ export function DriverPresenceToggle({ light }: { light?: boolean } = {}) {
         message.success("已上线");
       } catch {
         message.error("切换状态失败，请重试");
+        return;
       }
+
+      // 借「上线」这个使用者已经主动点过的手势顺便问一次通知权限——iOS/Android 都要求
+      // 通知权限一定要在使用者主动操作的当下问，不能自己在背景偷问，浏览器会直接忽略。
+      // 不 await、不挡住上线流程本身：就算 Driver 拒绝权限或浏览器不支援，也只是「收不到
+      // 推播通知」，完全不影响正常接单，不该因为这个让整个上线操作看起来卡住或失败。
+      void ensurePushSubscription().then((result) => {
+        if (result === "denied") {
+          message.info({ content: "已上线，但你拒绝了通知权限，之后不会收到新工作的推播提醒", duration: 5 });
+        }
+      });
     } else {
       try {
         await goOffline.mutateAsync();
         message.success("已下线");
       } catch {
         message.error("切换状态失败，请重试");
+        return;
       }
+      void clearPushSubscription();
     }
   }
 

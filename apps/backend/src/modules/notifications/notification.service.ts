@@ -2,6 +2,7 @@ import type { ActivityLog, Notification, NotificationAudience, Prisma } from "@p
 import { prisma } from "../../config/prisma.js";
 import { NotFoundError, ValidationError } from "../../common/errors.js";
 import { subscribeToActivity } from "../activityLog/activityLog.service.js";
+import { sendPushToDriver } from "./push.service.js";
 
 /**
  * Notification Center（2026-07）：Notification 只有两个来源——
@@ -111,6 +112,19 @@ export async function handleActivity(activity: ActivityLog, client: Prisma.Trans
         sourceActivityId: activity.id
       }
     });
+
+    // Web Push（出单等事件要在 Driver 没开着网页时也能收到）：刻意不 await——这段常常跑在
+    // acceptOffer/completeLeg 这类业务 Transaction 里面，真的打去 Push Service（FCM/APNs）
+    // 的网路延迟不该拖住 DB Transaction 的 Commit。sendPushToDriver 内部已经把所有错误都
+    // 吞掉，不会有 Unhandled Rejection，失败了也不影响这里已经写进去的 Notification row——
+    // Driver 打开 App 一样看得到，Push 只是「锦上添花」的即时提醒。
+    if (draft.audience === "DRIVER" && draft.driverId) {
+      void sendPushToDriver(draft.driverId, {
+        title: draft.title,
+        body: draft.message,
+        url: draft.relatedUrl ?? undefined
+      });
+    }
   }
 }
 
