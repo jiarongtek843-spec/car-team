@@ -1,6 +1,7 @@
 import { Alert, Button, Card, Space, Tag, Typography, message } from "antd";
 import { useAcceptOfferMutation, useDeclineOfferMutation, useMyOffersQuery } from "../hooks";
 import { formatLegDateTime } from "../../../lib/schedule";
+import { LocationLink } from "../../../common/LocationLink";
 
 /**
  * Phase 1 Dispatch Engine（简化版）：Driver 端的 Offer 卡片——先接先赢，逾时或被别人
@@ -28,7 +29,7 @@ export function PendingOffersPanel() {
               </Typography.Text>
             </Space>
             <Typography.Text>
-              {offer.leg.pickupLocation ?? "—"} → {offer.leg.dropoffLocation ?? "—"}
+              <LocationLink address={offer.leg.pickupLocation} /> → <LocationLink address={offer.leg.dropoffLocation} />
             </Typography.Text>
             <Typography.Text type="secondary">预定时间：{formatLegDateTime(offer.leg.scheduledAt)}</Typography.Text>
             {offer.distanceKm !== null && (
