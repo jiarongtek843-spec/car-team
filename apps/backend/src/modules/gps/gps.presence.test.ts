@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computePresenceStatus, CONNECTION_LOST_THRESHOLD_SECONDS, AUTO_OFFLINE_THRESHOLD_SECONDS } from "./gps.service.js";
+import { computePresenceStatus, CONNECTION_LOST_THRESHOLD_SECONDS } from "./gps.service.js";
 
 const NOW = new Date("2026-07-21T12:00:00.000Z");
 
@@ -53,15 +53,17 @@ describe("computePresenceStatus", () => {
     expect(result.status).toBe("ONLINE");
   });
 
-  it("returns OFFLINE past the 120s auto-offline threshold even though isOnline is still true in DB", () => {
+  it("stays CONNECTION_LOST no matter how stale the GPS gets, as long as isOnline is still true (no auto-offline)", () => {
+    // 业务明确要求：上下线只能靠司机自己手动控制，系统绝对不能因为 GPS 太久没更新
+    // 就自作主张把司机打回 Offline——否则司机会收不到后续的接单推播。
     const result = computePresenceStatus({
       isOnline: true,
       onlineSince: secondsAgo(600),
-      locationReceivedAt: secondsAgo(AUTO_OFFLINE_THRESHOLD_SECONDS + 1),
+      locationReceivedAt: secondsAgo(CONNECTION_LOST_THRESHOLD_SECONDS * 100),
       activeLegStatus: null,
       now: NOW
     });
-    expect(result.status).toBe("OFFLINE");
+    expect(result.status).toBe("CONNECTION_LOST");
   });
 
   it("shows the active leg's status instead of plain ONLINE when GPS is fresh and a leg is in progress", () => {
@@ -98,15 +100,15 @@ describe("computePresenceStatus", () => {
     expect(result.secondsSinceUpdate).toBe(5);
   });
 
-  it("auto-offlines a driver who never sent a single ping after going online more than 120s ago", () => {
+  it("stays CONNECTION_LOST (never OFFLINE) for a driver who never sent a single ping since going online", () => {
     const result = computePresenceStatus({
       isOnline: true,
-      onlineSince: secondsAgo(AUTO_OFFLINE_THRESHOLD_SECONDS + 30),
+      onlineSince: secondsAgo(CONNECTION_LOST_THRESHOLD_SECONDS * 100),
       locationReceivedAt: null,
       activeLegStatus: null,
       now: NOW
     });
-    expect(result.status).toBe("OFFLINE");
+    expect(result.status).toBe("CONNECTION_LOST");
   });
 
   it("Module 8: respects a custom connectionLostThresholdSeconds passed from CompanySettings instead of the default 30s", () => {
@@ -117,8 +119,7 @@ describe("computePresenceStatus", () => {
       locationReceivedAt: secondsAgo(15),
       activeLegStatus: null,
       now: NOW,
-      connectionLostThresholdSeconds: 10,
-      autoOfflineThresholdSeconds: AUTO_OFFLINE_THRESHOLD_SECONDS
+      connectionLostThresholdSeconds: 10
     });
     expect(result.status).toBe("CONNECTION_LOST");
   });
@@ -128,8 +129,10 @@ describe("computePresenceStatus", () => {
     // 后来下线（DriverLocation 不会被清掉），现在重新点上线——onlineSince 是刚刚，但
     // locationReceivedAt 是很久以前那笔旧定位。旧版逻辑无条件优先用 locationReceivedAt
     // 当新鲜度基准，会把「28 小时前的旧定位」算成「28 小时没更新」，直接判定 OFFLINE，
-    // 然后被 selfHealStaleOnlineDrivers 在同一个 request 里把刚设成 true 的 isOnline
-    // 打回 false——所以连 goOnline 自己的 API response 都已经是 OFFLINE。
+    // 然后（当时还存在的）self-heal 逻辑会在同一个 request 里把刚设成 true 的 isOnline
+    // 打回 false——所以连 goOnline 自己的 API response 都已经是 OFFLINE（这个 self-heal
+    // 机制后来因为「上下线只能靠司机手动控制」的业务要求整个拿掉了，但这条「新鲜度基准
+    // 判断本身要正确」的回归测试仍然有意义，保留）。
     const result = computePresenceStatus({
       isOnline: true,
       onlineSince: secondsAgo(0),
@@ -152,19 +155,5 @@ describe("computePresenceStatus", () => {
       now: NOW
     });
     expect(result.status).toBe("CONNECTION_LOST");
-  });
-
-  it("Module 8: respects a custom autoOfflineThresholdSeconds passed from CompanySettings instead of the default 120s", () => {
-    // 50 秒前的定位，用默认 120 秒门槛还在线，但用 CompanySettings 设定的 45 秒门槛就该自动 Offline。
-    const result = computePresenceStatus({
-      isOnline: true,
-      onlineSince: secondsAgo(600),
-      locationReceivedAt: secondsAgo(50),
-      activeLegStatus: null,
-      now: NOW,
-      connectionLostThresholdSeconds: CONNECTION_LOST_THRESHOLD_SECONDS,
-      autoOfflineThresholdSeconds: 45
-    });
-    expect(result.status).toBe("OFFLINE");
   });
 });

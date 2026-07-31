@@ -201,7 +201,6 @@ export async function listDispatchDrivers({ filter, search }: ListDispatchDriver
       locationReceivedAt: driver.location?.receivedAt ?? null,
       activeLegStatus: null,
       connectionLostThresholdSeconds: thresholds.connectionLostThresholdSeconds,
-      autoOfflineThresholdSeconds: thresholds.autoOfflineThresholdSeconds,
       now
     });
 

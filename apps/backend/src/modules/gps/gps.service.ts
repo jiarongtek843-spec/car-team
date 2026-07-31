@@ -12,12 +12,16 @@ const LOCATION_REPORTING_STATES = ["AVAILABLE", "PENDING_OFFER", "ACCEPTED_JOB",
 
 /**
  * 保底默认值，只在 `computePresenceStatus` 没有明确传阈值时使用（例如既有的单元测试）。
- * Module 8 起，实际跑的阈值来自 CompanySettings（connectionLostTimeoutSeconds/
- * offlineTimeoutSeconds），listDriverPresence/getDriverPresence/dispatch 的调用处
- * 都会明确传值，不会依赖这里的默认值——这两个常数只是「读不到设定时」的保险丝。
+ * 实际跑的阈值来自 CompanySettings（connectionLostTimeoutSeconds），
+ * listDriverPresence/getDriverPresence/dispatch 的调用处都会明确传值，不会依赖这里的
+ * 默认值——这个常数只是「读不到设定时」的保险丝。
+ *
+ * 曾经还有一个 AUTO_OFFLINE_THRESHOLD_SECONDS——GPS 太久没更新就自动把 isOnline 打回
+ * false。业务明确要求拿掉：司机开着 App 出去一阵子（GPS 因为背景权限/网路暂时断了）
+ * 不该被系统自作主张登出，导致收不到后续的接单通知——上线/下线要 100% 由司机自己手动
+ * 控制，系统只负责在 GPS 不新鲜时显示 CONNECTION_LOST 当参考，绝不能反过来动 isOnline。
  */
 export const CONNECTION_LOST_THRESHOLD_SECONDS = 30;
-export const AUTO_OFFLINE_THRESHOLD_SECONDS = 120;
 
 /**
  * Driver 目前状态。OFFLINE/CONNECTION_LOST/ONLINE 是依据最后一次 GPS 上传时间即时算出的，
@@ -42,9 +46,8 @@ interface ComputePresenceInput {
   locationReceivedAt: Date | null;
   activeLegStatus: LegStatus | null;
   now?: Date;
-  /** 不传就退回 CONNECTION_LOST_THRESHOLD_SECONDS/AUTO_OFFLINE_THRESHOLD_SECONDS 这两个保底值。 */
+  /** 不传就退回 CONNECTION_LOST_THRESHOLD_SECONDS 这个保底值。 */
   connectionLostThresholdSeconds?: number;
-  autoOfflineThresholdSeconds?: number;
 }
 
 interface PresenceResult {
@@ -61,7 +64,6 @@ interface PresenceResult {
 export function computePresenceStatus(input: ComputePresenceInput): PresenceResult {
   const now = input.now ?? new Date();
   const connectionLostThreshold = input.connectionLostThresholdSeconds ?? CONNECTION_LOST_THRESHOLD_SECONDS;
-  const autoOfflineThreshold = input.autoOfflineThresholdSeconds ?? AUTO_OFFLINE_THRESHOLD_SECONDS;
 
   if (!input.isOnline) {
     return { status: "OFFLINE", secondsSinceUpdate: null };
@@ -87,10 +89,6 @@ export function computePresenceStatus(input: ComputePresenceInput): PresenceResu
   const secondsSinceUpdate = referenceTime
     ? Math.max(0, Math.floor((now.getTime() - referenceTime.getTime()) / 1000))
     : null;
-
-  if (secondsSinceUpdate !== null && secondsSinceUpdate > autoOfflineThreshold) {
-    return { status: "OFFLINE", secondsSinceUpdate };
-  }
 
   if (secondsSinceUpdate !== null && secondsSinceUpdate > connectionLostThreshold) {
     return { status: "CONNECTION_LOST", secondsSinceUpdate };
@@ -316,7 +314,7 @@ function toPresencePayload(
   } | null,
   activeLeg: { id: number; bookingId: number; sequence: number; status: LegStatus; booking: { girlName: string } } | null,
   now: Date,
-  thresholds: { connectionLostThresholdSeconds: number; autoOfflineThresholdSeconds: number }
+  thresholds: { connectionLostThresholdSeconds: number }
 ) {
   const { status, secondsSinceUpdate } = computePresenceStatus({
     isOnline: driver.isOnline,
@@ -324,8 +322,7 @@ function toPresencePayload(
     locationReceivedAt: location?.receivedAt ?? null,
     activeLegStatus: activeLeg?.status ?? null,
     now,
-    connectionLostThresholdSeconds: thresholds.connectionLostThresholdSeconds,
-    autoOfflineThresholdSeconds: thresholds.autoOfflineThresholdSeconds
+    connectionLostThresholdSeconds: thresholds.connectionLostThresholdSeconds
   });
 
   return {
@@ -355,21 +352,11 @@ function toPresencePayload(
   };
 }
 
-/** 每次读取时顺手把「已经超过自动离线门槛、但 DB 里 isOnline 还是 true」的 Driver 打回 false。 */
-async function selfHealStaleOnlineDrivers(driverIds: number[]) {
-  if (driverIds.length === 0) return;
-  await prisma.driver.updateMany({
-    where: { id: { in: driverIds }, isOnline: true },
-    data: { isOnline: false, onlineSince: null }
-  });
-}
-
 /** 供 gps.service.ts 自己跟 dispatch.service.ts 共用，统一从 CompanySettings 读 presence 阈值。 */
 export async function getPresenceThresholds() {
   const settings = await getCompanySettings();
   return {
-    connectionLostThresholdSeconds: settings.connectionLostTimeoutSeconds,
-    autoOfflineThresholdSeconds: settings.offlineTimeoutSeconds
+    connectionLostThresholdSeconds: settings.connectionLostTimeoutSeconds
   };
 }
 
@@ -403,12 +390,6 @@ export async function listDriverPresence(onlineOnly: boolean) {
     toPresencePayload(driver, driver.location, latestActiveLegByDriver.get(driver.id) ?? null, now, thresholds)
   );
 
-  const staleOnlineDriverIds = results.filter((r) => r.status === "OFFLINE").map((r) => r.driver.id);
-  const staleButFlaggedOnline = drivers
-    .filter((d) => d.isOnline && staleOnlineDriverIds.includes(d.id))
-    .map((d) => d.id);
-  await selfHealStaleOnlineDrivers(staleButFlaggedOnline);
-
   return onlineOnly ? results.filter((r) => r.status !== "OFFLINE") : results;
 }
 
@@ -430,11 +411,5 @@ export async function getDriverPresence(driverId: number) {
     orderBy: { updatedAt: "desc" }
   });
 
-  const payload = toPresencePayload(driver, driver.location, activeLeg, now, thresholds);
-
-  if (payload.status === "OFFLINE" && driver.isOnline) {
-    await selfHealStaleOnlineDrivers([driver.id]);
-  }
-
-  return payload;
+  return toPresencePayload(driver, driver.location, activeLeg, now, thresholds);
 }

@@ -34,10 +34,17 @@ export const ACTIVE_STATUS: EligibilityRule = {
   isSatisfiedBy: (candidate) => candidate.status === "ACTIVE"
 };
 
-/** 核心规则 #2："Driver must be Online / Available." */
+/** 核心规则 #2："Driver must be Online / Available."
+ * presenceStatus 为 CONNECTION_LOST 也算——业务明确要求上下线只能由司机自己手动控制，
+ * GPS 暂时没更新（背景权限/网路问题）不该让系统自作主张把这个司机从可派单名单里剔除，
+ * 司机本来就还能透过 Web Push 收到通知、手动 Accept。真正被排除的只有司机自己按了
+ * Offline（isOnline=false → presenceStatus === "OFFLINE"）或手上已经有工作在忙
+ * （workloadStatus !== "IDLE"）。 */
 export const ONLINE_AVAILABLE: EligibilityRule = {
   name: "ONLINE_AVAILABLE",
-  isSatisfiedBy: (candidate) => candidate.presenceStatus === "ONLINE" && candidate.workloadStatus === "IDLE"
+  isSatisfiedBy: (candidate) =>
+    (candidate.presenceStatus === "ONLINE" || candidate.presenceStatus === "CONNECTION_LOST") &&
+    candidate.workloadStatus === "IDLE"
 };
 
 /** 核心规则 #3："Driver must not have an overlapping active job." 跟 ONLINE_AVAILABLE 的

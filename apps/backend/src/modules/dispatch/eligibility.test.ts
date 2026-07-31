@@ -12,14 +12,16 @@ describe("Phase 1 Driver Eligibility Engine", () => {
     expect(eligible.map((d) => d.id)).toEqual([2]);
   });
 
-  it("核心规则 #2：Offline 或 Connection Lost 的 Driver 不合格", () => {
+  it("核心规则 #2：Offline 的 Driver 不合格，但 Connection Lost（GPS 暂时没更新，司机没有手动下线）仍然合格", () => {
+    // 业务明确要求：上下线只能靠司机自己手动控制，GPS 暂时没更新不该让系统自己把这个
+    // 司机从可派单名单里剔除——司机本来就还能透过 Web Push 收到通知、手动 Accept。
     const drivers = [
       makeDriver({ id: 1, presenceStatus: "OFFLINE" }),
       makeDriver({ id: 2, presenceStatus: "CONNECTION_LOST" }),
       makeDriver({ id: 3, presenceStatus: "ONLINE" })
     ];
     const eligible = findEligibleDrivers(drivers, { excludeDriverIds: [] });
-    expect(eligible.map((d) => d.id)).toEqual([3]);
+    expect(eligible.map((d) => d.id)).toEqual([2, 3]);
   });
 
   it("核心规则 #3：手上已经有工作（BUSY）的 Driver 不合格", () => {

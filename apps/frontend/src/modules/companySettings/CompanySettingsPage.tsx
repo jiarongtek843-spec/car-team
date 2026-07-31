@@ -17,7 +17,6 @@ interface FormValues {
   requireDriverAccept: boolean;
   gpsUploadIntervalSeconds: number;
   connectionLostTimeoutSeconds: number;
-  offlineTimeoutSeconds: number;
   defaultSettlementTime: dayjs.Dayjs;
   settlementTimezone: string;
   collectionVerificationRequired: boolean;
@@ -121,13 +120,7 @@ export function CompanySettingsPage() {
             name="connectionLostTimeoutSeconds"
             label="Connection Lost Timeout (秒)"
             rules={[{ required: true, message: "请输入 Connection Lost Timeout" }]}
-          >
-            <InputNumber min={1} max={3600} style={{ width: 200 }} />
-          </Form.Item>
-          <Form.Item
-            name="offlineTimeoutSeconds"
-            label="Offline Timeout (秒)"
-            rules={[{ required: true, message: "请输入 Offline Timeout" }]}
+            extra="GPS 超过这个时间没更新，画面上会显示「Connection Lost」当参考，但不会把司机自动登出——上下线永远由司机自己手动控制。"
           >
             <InputNumber min={1} max={3600} style={{ width: 200 }} />
           </Form.Item>

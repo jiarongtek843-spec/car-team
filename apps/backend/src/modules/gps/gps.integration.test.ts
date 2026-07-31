@@ -163,27 +163,26 @@ describe("GPS live tracking (Module 5 scenarios)", () => {
     expect(presence.location).not.toBeNull();
   });
 
-  it("listDriverPresence self-heals a driver whose GPS has been stale past the auto-offline threshold", async () => {
+  it("listDriverPresence never force-offlines a driver whose GPS has gone stale -- only a manual goOffline() call can", async () => {
+    // 业务明确要求：上下线只能靠司机自己手动控制。之前这里曾经有一个「GPS 太久没更新就
+    // 自动把 isOnline 打回 false」的 self-heal 机制，会导致司机人只是暂时背景权限/网路
+    // 断线，就被系统自作主张登出、收不到后续的接单推播——已经整个拿掉。
     const driver = await createTestDriver("Stale Presence Driver");
     driverIds.push(driver.id);
 
     await gpsService.goOnline(driver.id, systemActor);
     await gpsService.recordPing(driver.id, { latitude: 3.1, longitude: 101.6 });
 
-    const staleTime = new Date(Date.now() - (gpsService.AUTO_OFFLINE_THRESHOLD_SECONDS + 30) * 1000);
-    // onlineSince 也要跟着往前推：Mobile UAT Bug Fix 之后，只有「不早于 onlineSince」的
-    // 定位才会被拿来当新鲜度基准（不然会跟上一次上线留下的旧定位分不出来）。这里要模拟的是
-    // 「这次持续在线期间最后一个 ping 之后就没再更新」，不是「上一次上线留下的旧定位」，
-    // 所以 onlineSince 要跟着一起往前推，不能只改 location 的时间。
+    const staleTime = new Date(Date.now() - gpsService.CONNECTION_LOST_THRESHOLD_SECONDS * 1000 * 100);
     await prisma.driver.update({ where: { id: driver.id }, data: { onlineSince: staleTime } });
     await prisma.driverLocation.update({ where: { driverId: driver.id }, data: { receivedAt: staleTime } });
 
     const list = await gpsService.listDriverPresence(false);
     const entry = list.find((p) => p.driver.id === driver.id);
-    expect(entry?.status).toBe("OFFLINE");
+    expect(entry?.status).toBe("CONNECTION_LOST");
 
     const reloaded = await prisma.driver.findUniqueOrThrow({ where: { id: driver.id } });
-    expect(reloaded.isOnline).toBe(false);
+    expect(reloaded.isOnline).toBe(true);
   });
 
   it("GPS failures never block completing a leg -- Booking works even if the driver never went online", async () => {
