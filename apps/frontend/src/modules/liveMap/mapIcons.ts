@@ -20,23 +20,26 @@ export const DRIVER_MARKER_COLOR: Record<DriverPresenceState, string> = {
 const BOOKING_MARKER_COLOR = "#722ed1";
 
 /** 用 DivIcon 画简单的实心圆点，不用 Leaflet 预设的 Marker 图片——避免 Vite 打包后
- * 预设 icon 图片路径失效的经典问题，同时方便直接套用跟 Driver Status Board 一致的配色。 */
+ * 预设 icon 图片路径失效的经典问题，同时方便直接套用跟 Driver Status Board 一致的配色。
+ * Mobile Responsiveness Pass：原本 16px 的点触控目标偏小，手指点在地图上容易点不中，
+ * 稍微加大到 22px（视觉上还是一个小圆点，不影响地图整体的资讯密度/易读性）。 */
 export function createDriverIcon(status: DriverPresenceState) {
   const color = DRIVER_MARKER_COLOR[status];
   return new DivIcon({
     className: "live-map-driver-marker",
-    html: `<span style="display:block;width:16px;height:16px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,0.5);"></span>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8]
+    html: `<span style="display:block;width:22px;height:22px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,0.5);"></span>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11]
   });
 }
 
-/** Booking Pickup Marker 用方形，跟圆形的 Driver Marker 一眼就能区分开。 */
+/** Booking Pickup Marker 用方形，跟圆形的 Driver Marker 一眼就能区分开。同样放大到接近
+ * Driver Marker 的触控尺寸。 */
 export function createBookingIcon() {
   return new DivIcon({
     className: "live-map-booking-marker",
-    html: `<span style="display:block;width:14px;height:14px;background:${BOOKING_MARKER_COLOR};border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,0.5);transform:rotate(45deg);"></span>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7]
+    html: `<span style="display:block;width:20px;height:20px;background:${BOOKING_MARKER_COLOR};border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,0.5);transform:rotate(45deg);"></span>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10]
   });
 }

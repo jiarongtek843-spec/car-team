@@ -86,6 +86,7 @@ export function DispatchCenterPage() {
       {isMobile ? (
         <>
           <Tabs
+            className="dispatch-center-mobile-tabs"
             activeKey={activeMobileTab}
             onChange={setActiveMobileTab}
             items={[

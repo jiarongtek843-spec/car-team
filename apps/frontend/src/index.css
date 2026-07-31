@@ -117,3 +117,29 @@ body {
 .responsive-filter-bar--mobile > .ant-space-item > .ant-btn {
   width: 100% !important;
 }
+
+/* Mobile Responsiveness Pass：Dispatch Center 手机版是 5 个 Tab（Waiting/Drivers/
+   Status/Active/Completed），antd Tabs 预设每个 Tab 之间留 32px 间距（给桌面滑鼠操作
+   设计的），5 个 Tab 在 375px 宽的手机上会超出可视宽度，逼 antd 自动把最后一两个 Tab
+   收进一个「...」More 下拉选单里，Dispatcher 得多点一次才找得到 Completed。缩小间距
+   刚好让 5 个 Tab 都能直接排进一行，不用改标签文字、不用动 Tab 逻辑本身。只 scope 在
+   Dispatch Center 自己的 Tabs（.dispatch-center-mobile-tabs），不影响 Driver Job Page
+   那边已经调过的 Tabs。 */
+@media (max-width: 767px) {
+  .dispatch-center-mobile-tabs .ant-tabs-tab + .ant-tabs-tab {
+    margin-left: 12px;
+  }
+}
+
+/* Mobile Responsiveness Pass：Live Dispatch Map 用的是 Leaflet 预设的 +/- 缩放按钮
+   （30x30px），比这个专案其他地方统一的 44px 触控标准小一截。只在手机宽度放大，
+   不影响桌面滑鼠操作时原本紧凑的尺寸。 */
+@media (max-width: 767px) {
+  .leaflet-control-zoom-in,
+  .leaflet-control-zoom-out {
+    width: 44px !important;
+    height: 44px !important;
+    line-height: 44px !important;
+    font-size: 20px !important;
+  }
+}
