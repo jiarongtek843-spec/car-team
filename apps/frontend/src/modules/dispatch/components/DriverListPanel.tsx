@@ -26,6 +26,15 @@ function SendOfferSection({ selectedLeg }: { selectedLeg: DispatchWaitingLeg }) 
     (o) => o.status === "PENDING" && new Date(o.expiresAt).getTime() > Date.now()
   );
 
+  // 后端 listOffersForLeg 回传的是这笔 Leg 从头到尾所有送过的 Offer（含之前几轮已失效
+  // 的），不是只有最新一轮——每按一次「Send Offer」都会再对所有合格 Driver 建一批新的，
+  // 旧的那批状态变成 EXPIRED 但资料还在，全部列出来的话名单会一直往下长（Dispatcher 反馈
+  // 「Cheng 已失效」重复出现越来越多）。同一批送出的 Offer 建立时用的是同一个 expiresAt
+  // （dispatchOffer.service.ts 的 sendOffer 只在迴圈外算一次），用它当分组依据，只留最新
+  // 一批显示——完整历史本来就还查得到 Audit Log，这里只是不在这个操作面板上重复堆叠。
+  const latestExpiresAt = offers?.[0]?.expiresAt;
+  const latestRoundOffers = (offers ?? []).filter((o) => o.expiresAt === latestExpiresAt);
+
   async function handleSendOffer() {
     try {
       await sendOffer.mutateAsync(selectedLeg.legId);
@@ -47,9 +56,9 @@ function SendOfferSection({ selectedLeg }: { selectedLeg: DispatchWaitingLeg }) 
         >
           {hasActivePending ? "Offer 进行中…" : "Send Offer"}
         </Button>
-        {offers && offers.length > 0 && (
+        {latestRoundOffers.length > 0 && (
           <Space direction="vertical" size={4} style={{ width: "100%" }}>
-            {offers.map((offer) => (
+            {latestRoundOffers.map((offer) => (
               <Space key={offer.id} style={{ width: "100%", justifyContent: "space-between" }} wrap>
                 <Typography.Text>{offer.driver.name}</Typography.Text>
                 <Tag color={OFFER_STATUS_COLOR[offer.status]}>{OFFER_STATUS_LABELS[offer.status]}</Tag>
