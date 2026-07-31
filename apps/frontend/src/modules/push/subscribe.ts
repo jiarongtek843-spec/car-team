@@ -21,7 +21,7 @@ export function isPushSupported(): boolean {
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
 
-export type PushPermissionResult = "subscribed" | "unsupported" | "denied" | "no-vapid-key";
+export type PushPermissionResult = "subscribed" | "unsupported" | "denied" | "no-vapid-key" | "save-failed";
 
 /**
  * Driver 点「上线」这个既有的使用者手势顺便请求通知权限——iOS/Android 都要求
@@ -59,10 +59,21 @@ export async function ensurePushSubscription(): Promise<PushPermissionResult> {
     return "unsupported";
   }
 
-  await subscribePush({
-    endpoint: json.endpoint,
-    keys: { p256dh: json.keys.p256dh, auth: json.keys.auth }
-  });
+  // Railway 实测发现的根因：浏览器端的 subscribe() 已经成功建立订阅（Notification 权限
+  // 也真的问过、Driver 也按了允许），但把这笔订阅存到后端的这支 API 呼叫本身失败时——
+  // 之前完全没有 try/catch，也没有任何呼叫端接 .catch()，会变成一个安静的 Unhandled
+  // Promise Rejection：浏览器本地「以为」自己订阅成功了，但 push_subscriptions 表里
+  // 根本没有这笔资料，之后所有 sendPushToDriver() 都找不到订阅、什么都不会发，而且全程
+  // 没有任何看得到的错误——这正是「权限允许了、但出单还是收不到推播」的实际成因。
+  try {
+    await subscribePush({
+      endpoint: json.endpoint,
+      keys: { p256dh: json.keys.p256dh, auth: json.keys.auth }
+    });
+  } catch (err) {
+    console.error("[push] failed to save subscription to backend", err);
+    return "save-failed";
+  }
 
   return "subscribed";
 }

@@ -90,8 +90,12 @@ export async function sendPushToDriver(driverId: number, payload: PushPayload) {
         const statusCode = (err as { statusCode?: number }).statusCode;
         if (statusCode === 404 || statusCode === 410) {
           await prisma.pushSubscription.deleteMany({ where: { endpoint: sub.endpoint } });
+          return;
         }
-        // 其他错误（暂时性网路问题等）不用特别处理，下一次推播事件自然会再试一次。
+        // 其他错误（暂时性网路问题、VAPID Key 设定错误、payload 格式问题等）之前完全不
+        // 记 log，Railway 上完全看不出「到底为什么没送到」——log 出来才有办法排查，
+        // 不重试也不删订阅，下一次推播事件本来就会自然再试一次。
+        console.error(`[push] sendNotification failed for driver ${driverId}, endpoint ${sub.endpoint}:`, err);
       }
     })
   );

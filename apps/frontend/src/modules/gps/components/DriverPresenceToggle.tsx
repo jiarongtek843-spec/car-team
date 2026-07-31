@@ -149,6 +149,8 @@ export function DriverPresenceToggle({ light }: { light?: boolean } = {}) {
           });
         } else if (result === "no-vapid-key") {
           message.info({ content: "已上线，但系统还没设定好推播功能，请联系管理员", duration: 5 });
+        } else if (result === "save-failed") {
+          message.warning({ content: "已上线，但通知订阅失败（网路问题），可能收不到新工作推播，建议重新整理网页后再试一次", duration: 6 });
         }
       });
     } else {
