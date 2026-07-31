@@ -5,6 +5,7 @@ import { LegTypeTag } from "../../bookings/components/StatusTags";
 import { formatDuration, formatEstimatedFinish, formatLegDateTime } from "../../../lib/schedule";
 import { formatCents } from "../../../lib/money";
 import { ApiError } from "../../../api/http";
+import { LocationLink } from "../../../common/LocationLink";
 
 const WALLET_STATUS_LABEL: Record<LegWalletStatus, string> = {
   PENDING: "待结算",
@@ -56,7 +57,7 @@ export function JobCard({ leg, onReject }: { leg: DriverLeg; onReject: (legId: n
         </Space>
         <Typography.Text>Girl：{leg.booking.girlName}</Typography.Text>
         <Typography.Text>
-          {leg.pickupLocation ?? "—"} → {leg.dropoffLocation ?? "—"}
+          <LocationLink address={leg.pickupLocation} /> → <LocationLink address={leg.dropoffLocation} />
         </Typography.Text>
         <Typography.Text type="secondary">预定时间：{formatLegDateTime(leg.scheduledAt)}</Typography.Text>
         <Typography.Text type="secondary">

@@ -9,6 +9,7 @@ import { useIsMobile } from "../../common/useIsMobile";
 import { DriverPresenceToggle } from "../gps/components/DriverPresenceToggle";
 import { useMyWalletSummaryQuery } from "../wallet/hooks";
 import { formatCents } from "../../lib/money";
+import { LocationLink } from "../../common/LocationLink";
 
 type BucketKey = "awaiting" | "upcoming" | "inProgress" | "completed" | "closed";
 
@@ -27,7 +28,7 @@ function LegSummaryLine({ leg }: { leg: DriverLeg }) {
         #{leg.booking.id} {leg.booking.girlName}
       </Typography.Text>
       <Typography.Text type="secondary">
-        {leg.pickupLocation ?? "—"} → {leg.dropoffLocation ?? "—"}
+        <LocationLink address={leg.pickupLocation} /> → <LocationLink address={leg.dropoffLocation} />
       </Typography.Text>
     </Space>
   );
