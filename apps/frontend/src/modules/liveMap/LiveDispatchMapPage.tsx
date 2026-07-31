@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, Col, Empty, Row, Space, Table, Tag, Typography } from "antd";
+import { Alert, Card, Col, Empty, Row, Skeleton, Space, Table, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -47,12 +47,22 @@ export function LiveDispatchMapPage() {
   const isMobile = useIsMobile();
   const [selection, setSelection] = useState<Selection>(null);
 
-  const { data: locations } = useDriverLocationsQuery();
-  const { data: presence } = useDriverPresenceQuery();
-  const { data: waitingLegs } = useWaitingBookingsQuery("WAITING", "");
+  const locationsQuery = useDriverLocationsQuery();
+  const presenceQuery = useDriverPresenceQuery();
+  const waitingLegsQuery = useWaitingBookingsQuery("WAITING", "");
+  const { data: locations } = locationsQuery;
+  const { data: presence } = presenceQuery;
+  const { data: waitingLegs } = waitingLegsQuery;
+
+  // Stabilization Bug Fix：之前完全没有 isLoading/isError 处理，第一次载入或任何一次
+  // Poll 失败时地图就是「零 Marker」，跟「真的没有司机在线」长得一模一样——对 Dispatch
+  // 这种时效性画面来说很危险，Dispatcher 可能误以为没人在线而不去查真正的原因。
+  const isInitialLoading = locationsQuery.isLoading || presenceQuery.isLoading || waitingLegsQuery.isLoading;
+  const isError = locationsQuery.isError || presenceQuery.isError || waitingLegsQuery.isError;
 
   const driverMarkers = useMemo(() => combineDriverMarkers(locations ?? [], presence ?? []), [locations, presence]);
   const bookingMarkers = useMemo(() => combineBookingMarkers(waitingLegs ?? []), [waitingLegs]);
+  const hasNoData = !isInitialLoading && !isError && driverMarkers.length === 0 && bookingMarkers.length === 0;
 
   const selectedDriver = selection?.type === "driver" ? driverMarkers.find((d) => d.driverId === selection.driverId) : null;
   const selectedBooking = selection?.type === "booking" ? bookingMarkers.find((b) => b.bookingId === selection.bookingId) : null;
@@ -67,50 +77,72 @@ export function LiveDispatchMapPage() {
         Engine——这个画面单纯把三个既有模块的资料画在地图上，不做 Auto Assignment、不画路线、不算 ETA。
       </Typography.Paragraph>
 
+      {isError && (
+        <Alert
+          type="warning"
+          showIcon
+          message="部分资料更新失败"
+          description="Driver 位置/状态或 Booking 清单有一部分抓取失败，画面上的资料可能不是最新——请勿单靠这个画面判断目前完全没有司机在线，建议重新整理或改看 Dispatch Center 确认。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={16}>
-          <Card size="small" styles={{ body: { padding: 0 } }}>
-            <MapContainer
-              center={DEFAULT_CENTER}
-              zoom={DEFAULT_ZOOM}
-              style={{ height: isMobile ? 360 : 560, width: "100%" }}
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <FitBounds driverMarkers={driverMarkers} bookingMarkers={bookingMarkers} />
-
-              {driverMarkers.map((driver) => (
-                <Marker
-                  key={`driver-${driver.driverId}`}
-                  position={[driver.latitude, driver.longitude]}
-                  icon={createDriverIcon(driver.status)}
-                  eventHandlers={{ click: () => setSelection({ type: "driver", driverId: driver.driverId }) }}
+          <Card size="small" styles={{ body: { padding: isInitialLoading ? 16 : 0 } }}>
+            {isInitialLoading ? (
+              <Skeleton active paragraph={{ rows: 8 }} style={{ height: isMobile ? 360 : 560 }} />
+            ) : (
+              <>
+                {hasNoData && (
+                  <Empty
+                    description="目前没有司机在线、也没有等待中的 Booking Pickup"
+                    style={{ padding: 16 }}
+                  />
+                )}
+                <MapContainer
+                  center={DEFAULT_CENTER}
+                  zoom={DEFAULT_ZOOM}
+                  style={{ height: isMobile ? 360 : 560, width: "100%" }}
                 >
-                  <Popup>
-                    <strong>{driver.driverName}</strong>
-                    <br />
-                    {PRESENCE_STATE_LABELS[driver.status]}
-                  </Popup>
-                </Marker>
-              ))}
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <FitBounds driverMarkers={driverMarkers} bookingMarkers={bookingMarkers} />
 
-              {bookingMarkers.map((booking) => (
-                <Marker
-                  key={`booking-${booking.bookingId}`}
-                  position={[booking.latitude, booking.longitude]}
-                  icon={createBookingIcon()}
-                  eventHandlers={{ click: () => setSelection({ type: "booking", bookingId: booking.bookingId }) }}
-                >
-                  <Popup>
-                    <strong>#{booking.bookingId}</strong> {booking.girlName}
-                    <br />
-                    {booking.pickupLocation}
-                  </Popup>
-                </Marker>
-              ))}
-            </MapContainer>
+                  {driverMarkers.map((driver) => (
+                    <Marker
+                      key={`driver-${driver.driverId}`}
+                      position={[driver.latitude, driver.longitude]}
+                      icon={createDriverIcon(driver.status)}
+                      eventHandlers={{ click: () => setSelection({ type: "driver", driverId: driver.driverId }) }}
+                    >
+                      <Popup>
+                        <strong>{driver.driverName}</strong>
+                        <br />
+                        {PRESENCE_STATE_LABELS[driver.status]}
+                      </Popup>
+                    </Marker>
+                  ))}
+
+                  {bookingMarkers.map((booking) => (
+                    <Marker
+                      key={`booking-${booking.bookingId}`}
+                      position={[booking.latitude, booking.longitude]}
+                      icon={createBookingIcon()}
+                      eventHandlers={{ click: () => setSelection({ type: "booking", bookingId: booking.bookingId }) }}
+                    >
+                      <Popup>
+                        <strong>#{booking.bookingId}</strong> {booking.girlName}
+                        <br />
+                        {booking.pickupLocation}
+                      </Popup>
+                    </Marker>
+                  ))}
+                </MapContainer>
+              </>
+            )}
           </Card>
 
           <Card size="small" title="Legend" style={{ marginTop: 16 }}>

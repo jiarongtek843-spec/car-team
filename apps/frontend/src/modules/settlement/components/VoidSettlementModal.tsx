@@ -1,5 +1,6 @@
 import { Form, Input, message, Modal } from "antd";
 import { useVoidSettlementMutation } from "../hooks";
+import { ApiError } from "../../../api/http";
 
 interface FormValues {
   reason: string;
@@ -18,9 +19,14 @@ export function VoidSettlementModal({ settlementId, onClose }: { settlementId: n
   async function handleSubmit() {
     if (!settlementId) return;
     const values = await form.validateFields();
-    await voidSettlement.mutateAsync({ id: settlementId, reason: values.reason });
-    message.success("Settlement 已作废");
-    handleClose();
+    // Stabilization Bug Fix：mutateAsync 失败之前完全没有提示，Admin 会以为作废成功了。
+    try {
+      await voidSettlement.mutateAsync({ id: settlementId, reason: values.reason });
+      message.success("Settlement 已作废");
+      handleClose();
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : "作废失败，请重试");
+    }
   }
 
   return (

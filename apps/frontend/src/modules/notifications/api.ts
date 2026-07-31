@@ -29,10 +29,6 @@ export function markNotificationRead(id: number) {
   return http.patch<Notification>(`/api/notifications/${id}/read`);
 }
 
-export function markNotificationUnread(id: number) {
-  return http.patch<Notification>(`/api/notifications/${id}/unread`);
-}
-
 // Driver 端（/api/driver/notifications，RBAC: driverNotification:self，自动 scope 到自己）。
 export function fetchMyNotifications(params: Omit<ListNotificationsParams, "audience">) {
   return http.get<PagedResult<Notification>>(`/api/driver/notifications${toQueryString(params)}`);
@@ -40,8 +36,4 @@ export function fetchMyNotifications(params: Omit<ListNotificationsParams, "audi
 
 export function markMyNotificationRead(id: number) {
   return http.patch<Notification>(`/api/driver/notifications/${id}/read`);
-}
-
-export function markMyNotificationUnread(id: number) {
-  return http.patch<Notification>(`/api/driver/notifications/${id}/unread`);
 }

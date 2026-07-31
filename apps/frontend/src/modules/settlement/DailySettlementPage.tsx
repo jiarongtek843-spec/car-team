@@ -10,6 +10,7 @@ import type { Collection, CollectionStatus } from "../collections/types";
 import { formatCents } from "../../lib/money";
 import { PermissionGate } from "../auth/PermissionGate";
 import { PERMISSIONS } from "../../common/permissions";
+import { ApiError } from "../../api/http";
 
 const WALLET_STATUS_COLOR: Record<WalletTransactionStatus, string> = {
   PENDING: "gold",
@@ -263,14 +264,20 @@ export function DailySettlementPage() {
 
   async function handleConfirm() {
     if (!driverId) return;
-    const settlement = await confirmSettlement.mutateAsync({
-      driverId,
-      periodStart,
-      periodEnd,
-      selectedWalletTransactionIds: [...selectedTxIds],
-      selectedCollectionIds: [...selectedCollectionIds]
-    });
-    message.success(`日结完成，Reference: ${settlement.reference}`);
+    // Stabilization Bug Fix：之前没有 try/catch，失败的日结（网络问题、重复结算等）
+    // 完全没有任何提示，Admin 会以为已经成功、或搞不清楚为什么按钮停止 loading。
+    try {
+      const settlement = await confirmSettlement.mutateAsync({
+        driverId,
+        periodStart,
+        periodEnd,
+        selectedWalletTransactionIds: [...selectedTxIds],
+        selectedCollectionIds: [...selectedCollectionIds]
+      });
+      message.success(`日结完成，Reference: ${settlement.reference}`);
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : "日结失败，请重试");
+    }
   }
 
   const availableCount = (preview?.transactions.length ?? 0) + (preview?.collections.length ?? 0);

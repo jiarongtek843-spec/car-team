@@ -1,8 +1,15 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { message } from "antd";
 import * as notificationsApi from "./api";
 import type { NotificationAudience } from "./types";
 
 const PAGE_SIZE = 20;
+
+// Stabilization Bug Fix：这四个 mutation 之前完全没有 onError——标为已读失败不影响
+// 业务正确性，但至少该让使用者知道点了没反应，不是当作没这回事。
+function reportMarkReadError() {
+  message.error("标记已读失败，请重试");
+}
 
 // 未读数量刻意重用既有的 List API（isRead=false, pageSize=1，只要 total）而不是另外开一个
 // unread-count 端点——後端目前没有、也不需要为了一个数字多开一支 API。
@@ -33,7 +40,8 @@ export function useMarkNotificationReadMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => notificationsApi.markNotificationRead(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications", "admin"] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications", "admin"] }),
+    onError: reportMarkReadError
   });
 }
 
@@ -51,7 +59,8 @@ export function useMarkAllAsReadMutation(audience: NotificationAudience) {
       }
       await Promise.all(ids.map((id) => notificationsApi.markNotificationRead(id)));
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications", "admin"] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications", "admin"] }),
+    onError: reportMarkReadError
   });
 }
 
@@ -81,7 +90,8 @@ export function useMarkMyNotificationReadMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => notificationsApi.markMyNotificationRead(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications", "driver"] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications", "driver"] }),
+    onError: reportMarkReadError
   });
 }
 
@@ -97,6 +107,7 @@ export function useMarkAllMyNotificationsReadMutation() {
       }
       await Promise.all(ids.map((id) => notificationsApi.markMyNotificationRead(id)));
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications", "driver"] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications", "driver"] }),
+    onError: reportMarkReadError
   });
 }
