@@ -12,3 +12,13 @@ export function login(username: string, password: string) {
 export function logout() {
   return http.post<void>("/api/auth/logout");
 }
+
+export interface UpdateCredentialsInput {
+  currentPassword: string;
+  newUsername?: string;
+  newPassword?: string;
+}
+
+export function updateCredentials(input: UpdateCredentialsInput) {
+  return http.patch<AuthUser>("/api/auth/me", input);
+}

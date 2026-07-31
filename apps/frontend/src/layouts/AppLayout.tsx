@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from "react";
-import { Button, Drawer, Layout, Menu, Space, Typography } from "antd";
+import { Button, Drawer, Layout, Menu, Space } from "antd";
 import { MenuOutlined } from "@ant-design/icons";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../modules/auth/AuthContext";
 import { PERMISSIONS, type PermissionKey } from "../common/permissions";
 import { useIsMobile } from "../common/useIsMobile";
 import { AdminNotificationBell } from "../modules/notifications/components/AdminNotificationBell";
+import { AccountSettingsModal } from "../modules/auth/components/AccountSettingsModal";
 
 const { Header, Content } = Layout;
 
@@ -40,6 +41,7 @@ export function AppLayout() {
   const { user, logout } = useAuth();
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
   const selectedKey = location.pathname.startsWith("/bookings") ? "/" : location.pathname;
   const visibleNavItems = NAV_ITEMS.filter((item) => user?.permissions.includes(item.permission));
 
@@ -76,7 +78,9 @@ export function AppLayout() {
             <Menu theme="dark" mode="horizontal" selectedKeys={[selectedKey]} items={visibleNavItems} style={{ flex: 1 }} />
             <Space>
               <AdminNotificationBell />
-              <Typography.Text style={{ color: "#fff" }}>{user?.username}</Typography.Text>
+              <a style={{ color: "#fff" }} onClick={() => setAccountModalOpen(true)}>
+                {user?.username}
+              </a>
               <a style={{ color: "#fff" }} onClick={handleLogout}>
                 登出
               </a>
@@ -97,13 +101,15 @@ export function AppLayout() {
         <Menu mode="inline" selectedKeys={[selectedKey]} items={visibleNavItems} onClick={() => setDrawerOpen(false)} />
         <div className="safe-area-bottom" style={{ padding: 16, borderTop: "1px solid #f0f0f0" }}>
           <Space direction="vertical" style={{ width: "100%" }}>
-            <Typography.Text type="secondary">{user?.username}</Typography.Text>
+            <a onClick={() => { setDrawerOpen(false); setAccountModalOpen(true); }}>{user?.username}</a>
             <Button block onClick={handleLogout} style={{ minHeight: 44 }}>
               登出
             </Button>
           </Space>
         </div>
       </Drawer>
+
+      <AccountSettingsModal open={accountModalOpen} onClose={() => setAccountModalOpen(false)} />
     </Layout>
   );
 }
