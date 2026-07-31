@@ -37,3 +37,7 @@ export function setDriverStatus(id: number, status: DriverStatus) {
 export function resetDriverPassword(id: number, password: string) {
   return http.post<void>(`/api/drivers/${id}/reset-password`, { password });
 }
+
+export function deleteDriver(id: number, password: string) {
+  return http.delete<void>(`/api/drivers/${id}`, { password });
+}

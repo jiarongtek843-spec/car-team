@@ -72,10 +72,27 @@ export function AppLayout() {
             style={{ marginRight: 12, minWidth: 44, minHeight: 44 }}
           />
         )}
-        <div style={{ color: "#fff", fontWeight: 600, marginRight: 32, flex: isMobile ? 1 : undefined }}>车队管理系统</div>
+        <div
+          style={{
+            color: "#fff",
+            fontWeight: 600,
+            marginRight: 32,
+            flex: isMobile ? 1 : undefined,
+            flexShrink: 0,
+            whiteSpace: "nowrap"
+          }}
+        >
+          车队管理系统
+        </div>
         {!isMobile && (
           <>
-            <Menu theme="dark" mode="horizontal" selectedKeys={[selectedKey]} items={visibleNavItems} style={{ flex: 1 }} />
+            <Menu
+              theme="dark"
+              mode="horizontal"
+              selectedKeys={[selectedKey]}
+              items={visibleNavItems}
+              style={{ flex: 1, minWidth: 0 }}
+            />
             <Space>
               <AdminNotificationBell />
               <a style={{ color: "#fff" }} onClick={() => setAccountModalOpen(true)}>

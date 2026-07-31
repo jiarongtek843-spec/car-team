@@ -30,6 +30,10 @@ const resetPasswordSchema = z.object({
   password: z.string().min(6)
 });
 
+const deleteDriverSchema = z.object({
+  password: z.string().min(1)
+});
+
 export async function list(req: Request, res: Response) {
   const status = req.query.status ? driverStatusSchema.parse(req.query.status) : undefined;
   const drivers = await driversService.listDrivers(status);
@@ -91,6 +95,28 @@ export async function resetPassword(req: Request, res: Response) {
     action: "DRIVER_PASSWORD_RESET",
     entityType: "Driver",
     entityId: driver.id
+  });
+
+  res.status(204).end();
+}
+
+export async function remove(req: Request, res: Response) {
+  const id = parseIdParam(req.params.id);
+  const { password } = deleteDriverSchema.parse(req.body);
+  const actorId = req.authUser!.id;
+  const deleted = await driversService.deleteDriver(id, actorId, password);
+
+  await writeAuditLog({
+    actor: actorFromRequest(req),
+    action: "DRIVER_DELETE",
+    entityType: "Driver",
+    entityId: id,
+    beforeData: {
+      name: deleted.name,
+      phone: deleted.phone,
+      vehiclePlateNumber: deleted.vehiclePlateNumber,
+      status: deleted.status
+    }
   });
 
   res.status(204).end();

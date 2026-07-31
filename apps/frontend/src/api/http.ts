@@ -89,7 +89,8 @@ export const http = {
     request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  delete: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "DELETE", body: body ? JSON.stringify(body) : undefined }),
   // 上传文件用，不能设 Content-Type: application/json——浏览器要自己带 multipart boundary。
   postForm: <T>(path: string, formData: FormData) => requestForm<T>(path, formData)
 };

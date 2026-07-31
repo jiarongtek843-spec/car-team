@@ -21,3 +21,4 @@ driversRouter.post(
   requirePermission(PERMISSIONS.DRIVER_WRITE),
   asyncHandler(driversController.resetPassword)
 );
+driversRouter.delete("/:id", requirePermission(PERMISSIONS.DRIVER_WRITE), asyncHandler(driversController.remove));

@@ -52,3 +52,13 @@ export function useResetDriverPasswordMutation() {
     mutationFn: ({ id, password }: { id: number; password: string }) => driversApi.resetDriverPassword(id, password)
   });
 }
+
+export function useDeleteDriverMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, password }: { id: number; password: string }) => driversApi.deleteDriver(id, password),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+    }
+  });
+}

@@ -5,6 +5,7 @@ import { useDriversQuery, useSetDriverStatusMutation } from "./hooks";
 import { CreateDriverModal } from "./components/CreateDriverModal";
 import { EditDriverModal } from "./components/EditDriverModal";
 import { ResetPasswordModal } from "./components/ResetPasswordModal";
+import { DeleteDriverModal } from "./components/DeleteDriverModal";
 import type { Driver } from "../../types/booking";
 import { PermissionGate } from "../auth/PermissionGate";
 import { PERMISSIONS } from "../../common/permissions";
@@ -17,6 +18,7 @@ export function DriverManagementPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [resettingDriver, setResettingDriver] = useState<Driver | null>(null);
+  const [deletingDriver, setDeletingDriver] = useState<Driver | null>(null);
   const isMobile = useIsMobile();
 
   const columns: ColumnsType<Driver> = [
@@ -58,6 +60,11 @@ export function DriverManagementPage() {
                 {driver.status === "ACTIVE" ? "停用" : "启用"}
               </a>
             </Popconfirm>
+            {driver.status === "INACTIVE" && (
+              <a style={{ color: "#ff4d4f" }} onClick={() => setDeletingDriver(driver)}>
+                删除
+              </a>
+            )}
           </Space>
         </PermissionGate>
       )
@@ -86,6 +93,7 @@ export function DriverManagementPage() {
       <CreateDriverModal open={createOpen} onClose={() => setCreateOpen(false)} />
       <EditDriverModal driver={editingDriver} onClose={() => setEditingDriver(null)} />
       <ResetPasswordModal driver={resettingDriver} onClose={() => setResettingDriver(null)} />
+      <DeleteDriverModal driver={deletingDriver} onClose={() => setDeletingDriver(null)} />
     </div>
   );
 }

@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { prisma } from "../../config/prisma.js";
 import * as driversService from "./drivers.service.js";
 import { verifyPassword } from "../../common/password.js";
-import { ConflictError, NotFoundError, ValidationError } from "../../common/errors.js";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../common/errors.js";
+
+const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "DevPass123!";
 
 /**
  * UAT 稳定化阶段：drivers.service.ts 之前完全没有专属测试文件。这个文件补齐
@@ -100,5 +102,66 @@ describe("setDriverStatus", () => {
 
   it("不存在的 Driver 改状态会被拒绝", async () => {
     await expect(driversService.setDriverStatus(999999999, "INACTIVE")).rejects.toThrow(NotFoundError);
+  });
+});
+
+describe("deleteDriver", () => {
+  it("已停用、没有任何业务纪录的 Driver：密码正确就能真的删除，连带清掉登入帐号", async () => {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { username: "admin" } });
+    const driver = await driversService.createDriver({
+      name: "Delete Target",
+      username: `delete_target_${Date.now()}`,
+      password: "originalPassword1"
+    });
+    driverIds.push(driver.id);
+    await driversService.setDriverStatus(driver.id, "INACTIVE");
+
+    await driversService.deleteDriver(driver.id, admin.id, SEED_PASSWORD);
+
+    expect(await prisma.driver.findUnique({ where: { id: driver.id } })).toBeNull();
+    expect(await prisma.user.findUnique({ where: { id: driver.userId! } })).toBeNull();
+  });
+
+  it("目前是 ACTIVE 的 Driver：拒绝删除，一定要先停用", async () => {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { username: "admin" } });
+    const driver = await driversService.createDriver({ name: "Still Active Driver" });
+    driverIds.push(driver.id);
+
+    await expect(driversService.deleteDriver(driver.id, admin.id, SEED_PASSWORD)).rejects.toThrow(ConflictError);
+    expect(await prisma.driver.findUnique({ where: { id: driver.id } })).not.toBeNull();
+  });
+
+  it("操作者密码错误：拒绝删除，Driver 还在", async () => {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { username: "admin" } });
+    const driver = await driversService.createDriver({ name: "Wrong Password Target" });
+    driverIds.push(driver.id);
+    await driversService.setDriverStatus(driver.id, "INACTIVE");
+
+    await expect(driversService.deleteDriver(driver.id, admin.id, "definitely-wrong-password")).rejects.toThrow(
+      ForbiddenError
+    );
+    expect(await prisma.driver.findUnique({ where: { id: driver.id } })).not.toBeNull();
+  });
+
+  it("已经有真实业务纪录（例如上传过 GPS 定位）：即使已停用、密码也对，还是拒绝删除", async () => {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { username: "admin" } });
+    const driver = await driversService.createDriver({ name: "Has History Driver" });
+    driverIds.push(driver.id);
+    await prisma.driverLocation.create({
+      data: { driverId: driver.id, latitude: 3.14, longitude: 101.68, recordedAt: new Date() }
+    });
+    await driversService.setDriverStatus(driver.id, "INACTIVE");
+
+    await expect(driversService.deleteDriver(driver.id, admin.id, SEED_PASSWORD)).rejects.toThrow(ConflictError);
+    expect(await prisma.driver.findUnique({ where: { id: driver.id } })).not.toBeNull();
+
+    // driver_locations 对 driver_id 是 ON DELETE RESTRICT——留着不清掉的话，afterEach
+    // 那个通用的 prisma.driver.deleteMany() 也会被同一条约束卡住而丢出真的 DB 错误。
+    await prisma.driverLocation.delete({ where: { driverId: driver.id } });
+  });
+
+  it("不存在的 Driver：拒绝删除", async () => {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { username: "admin" } });
+    await expect(driversService.deleteDriver(999999999, admin.id, SEED_PASSWORD)).rejects.toThrow(NotFoundError);
   });
 });

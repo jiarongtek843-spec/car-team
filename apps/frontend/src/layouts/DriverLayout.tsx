@@ -51,10 +51,27 @@ export function DriverLayout() {
             style={{ marginRight: 12, minWidth: 44, minHeight: 44 }}
           />
         )}
-        <div style={{ color: "#fff", fontWeight: 600, marginRight: 32, flex: isMobile ? 1 : undefined }}>车队管理系统 · 司机</div>
+        <div
+          style={{
+            color: "#fff",
+            fontWeight: 600,
+            marginRight: 32,
+            flex: isMobile ? 1 : undefined,
+            flexShrink: 0,
+            whiteSpace: "nowrap"
+          }}
+        >
+          车队管理系统 · 司机
+        </div>
         {!isMobile && (
           <>
-            <Menu theme="dark" mode="horizontal" selectedKeys={[location.pathname]} items={NAV_ITEMS} style={{ flex: 1 }} />
+            <Menu
+              theme="dark"
+              mode="horizontal"
+              selectedKeys={[location.pathname]}
+              items={NAV_ITEMS}
+              style={{ flex: 1, minWidth: 0 }}
+            />
             <Space size="large">
               <MyPresenceBadge />
               <DriverNotificationBell />
