@@ -8,8 +8,12 @@ import { useDriverPresenceQuery } from "../driverPresence/hooks";
 import { useWaitingBookingsQuery, useMatchingQuery } from "../dispatch/hooks";
 import { PRESENCE_STATE_COLOR, PRESENCE_STATE_LABELS } from "../driverPresence/types";
 import { useIsMobile } from "../../common/useIsMobile";
+import { useCompanySettings } from "../companySettings/CompanySettingsContext";
 import { combineBookingMarkers, combineDriverMarkers, type BookingMapMarker, type DriverMapMarker } from "./markers";
 import { createBookingIcon, createDriverIcon, DRIVER_MARKER_COLOR } from "./mapIcons";
+
+/** CompanySettings 还没加载完成时的保底值，跟 gps.service.ts 的 CONNECTION_LOST_THRESHOLD_SECONDS 一致。 */
+const DEFAULT_STALE_THRESHOLD_SECONDS = 30;
 
 // 没有任何 Marker 时的预设中心/缩放——纯粹是一个合理的起始视角，不代表任何业务意义。
 const DEFAULT_CENTER: [number, number] = [3.139, 101.6869];
@@ -46,6 +50,7 @@ function formatUpdatedAt(value: string) {
 export function LiveDispatchMapPage() {
   const isMobile = useIsMobile();
   const [selection, setSelection] = useState<Selection>(null);
+  const companySettings = useCompanySettings();
 
   const locationsQuery = useDriverLocationsQuery();
   const presenceQuery = useDriverPresenceQuery();
@@ -53,6 +58,16 @@ export function LiveDispatchMapPage() {
   const { data: locations } = locationsQuery;
   const { data: presence } = presenceQuery;
   const { data: waitingLegs } = waitingLegsQuery;
+
+  // GPS 上传是 Driver 分页背景执行的 JS 计时器——手机锁屏/切到别的 App 之后系统会暂停甚至
+  // 直接终止背景分页的计时器，Driver 这之后就不会再有新的定位，但既有逻辑完全没有任何
+  // 提示，Marker 会维持原本状态的实心颜色继续停在最后一个已知位置，让 Dispatcher 误以为
+  // 那就是即时位置。这里用跟 Driver Presence 的 CONNECTION_LOST 判定同一个阈值
+  // （connectionLostTimeoutSeconds）：超过这段时间没有新定位，就视为「可能过期」。
+  const staleThresholdMs = (companySettings?.connectionLostTimeoutSeconds ?? DEFAULT_STALE_THRESHOLD_SECONDS) * 1000;
+  function isDriverStale(driver: DriverMapMarker) {
+    return Date.now() - new Date(driver.lastGpsUpdateAt).getTime() > staleThresholdMs;
+  }
 
   // Stabilization Bug Fix：之前完全没有 isLoading/isError 处理，第一次载入或任何一次
   // Poll 失败时地图就是「零 Marker」，跟「真的没有司机在线」长得一模一样——对 Dispatch
@@ -115,13 +130,19 @@ export function LiveDispatchMapPage() {
                     <Marker
                       key={`driver-${driver.driverId}`}
                       position={[driver.latitude, driver.longitude]}
-                      icon={createDriverIcon(driver.status)}
+                      icon={createDriverIcon(driver.status, isDriverStale(driver))}
                       eventHandlers={{ click: () => setSelection({ type: "driver", driverId: driver.driverId }) }}
                     >
                       <Popup>
                         <strong>{driver.driverName}</strong>
                         <br />
                         {PRESENCE_STATE_LABELS[driver.status]}
+                        {isDriverStale(driver) && (
+                          <>
+                            <br />
+                            <span style={{ color: "#8c8c8c" }}>位置可能已过期（{formatUpdatedAt(driver.lastGpsUpdateAt)}）</span>
+                          </>
+                        )}
                       </Popup>
                     </Marker>
                   ))}
@@ -163,6 +184,20 @@ export function LiveDispatchMapPage() {
                 </Tag>
               ))}
               <Tag color="purple">▲ Booking Pickup</Tag>
+              <Tag style={{ borderStyle: "dashed", borderColor: "#8c8c8c", color: "#8c8c8c" }}>
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: DRIVER_MARKER_COLOR.OFFLINE,
+                    opacity: 0.55,
+                    marginRight: 4
+                  }}
+                />
+                位置可能过期
+              </Tag>
             </Space>
           </Card>
         </Col>
@@ -181,6 +216,14 @@ export function LiveDispatchMapPage() {
                   {selectedDriver.currentBooking ? `#${selectedDriver.currentBooking.id} ${selectedDriver.currentBooking.girlName}` : "-"}
                 </Typography.Text>
                 <Typography.Text type="secondary">Last GPS Update: {formatUpdatedAt(selectedDriver.lastGpsUpdateAt)}</Typography.Text>
+                {isDriverStale(selectedDriver) && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="位置可能已过期"
+                    description="Driver 的手机可能锁屏或切到背景，网页暂停了定位上传——目前显示的是最后一次收到的位置，不代表他现在真的在这里。等他重新打开网页就会恢复。"
+                  />
+                )}
               </Space>
             )}
 
