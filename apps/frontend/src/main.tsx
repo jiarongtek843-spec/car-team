@@ -16,6 +16,17 @@ import { CompanySettingsProvider } from "./modules/companySettings/CompanySettin
 
 const queryClient = new QueryClient();
 
+// 只在 production build 注册——dev 模式下 Service Worker 的快取会跟 Vite HMR 打架
+// （改完代码看到的还是快取过的旧版本），跟这个专案其他「只在 prod 生效」的开关同一个判准。
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // 注册失败不影响一般网页使用（例如 iOS Safari 私密浏览模式会挡 Service Worker），
+      // 静默失败，退回「一般网页」的体验，不弹错误打断使用者。
+    });
+  });
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ConfigProvider locale={zhCN}>
