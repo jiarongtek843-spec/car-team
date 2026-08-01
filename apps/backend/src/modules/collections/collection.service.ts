@@ -310,6 +310,34 @@ export function sumCollectionAmountCents(collections: { amountCents: number }[])
   return collections.reduce((sum, c) => sum + c.amountCents, 0);
 }
 
+interface CollectionSummaryFilters {
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+/**
+ * 老板总览用：Collection 总数。只算 VERIFIED/SETTLED（Admin 已经确认这笔钱真的收到了——
+ * 跟 getCollectionsInPeriod 同一套「只有 Verify 过才算数」的规则），排除还没 Verify 的
+ * COLLECTED/PENDING 跟已经作废的 VOIDED。不像 getCollectionsInPeriod 那样限定
+ * collectedBy=DRIVER——这里是公司整体代收总数，Driver 代收跟 Company 直接收款都是
+ * 公司真的收到的钱，都该算。
+ */
+export async function getCollectionSummary({ dateFrom, dateTo }: CollectionSummaryFilters) {
+  const result = await prisma.collection.aggregate({
+    where: {
+      status: { in: ["VERIFIED", "SETTLED"] },
+      collectedAt: {
+        gte: dateFrom ? parseLocalDateOnly(dateFrom) : undefined,
+        lte: dateTo ? endOfLocalDay(parseLocalDateOnly(dateTo)) : undefined
+      }
+    },
+    _sum: { amountCents: true },
+    _count: true
+  });
+
+  return { totalAmountCents: result._sum.amountCents ?? 0, count: result._count };
+}
+
 /**
  * Void Settlement 时呼叫：把这个 Settlement 底下的 Collection 从 SETTLED 打回 VERIFIED，
  * 让它们能被纳入下一次日结。跟 WalletTransaction 的反向纪录做法不同——Collection.status

@@ -12,6 +12,7 @@ import {
 } from "./revenueSharing.calculator.js";
 import { createRevenueSharePayouts } from "../wallet/wallet.service.js";
 import { roundToNearestCent } from "../../common/money.js";
+import { parseLocalDateOnly, endOfLocalDay } from "../../common/date.js";
 
 type TxClient = Prisma.TransactionClient | typeof prisma;
 
@@ -457,6 +458,40 @@ export async function listRevenueHistory({ page, pageSize }: ListRevenueHistoryP
   ]);
 
   return { data, total, page, pageSize };
+}
+
+interface CompanyCommissionSummaryParams {
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+/**
+ * 老板总览用：跨所有 Booking 累计的公司抽成（Company Commission）总数。不是直接读
+ * companyRevenueCents 栏位——那个是 nonParticipatingCompanyCents + companyCommissionCents
+ * 的合计（见 revenueSharing.calculator.ts），会混进未来才可能出现的非抽成公司收入。
+ * 抽成本身没有独立栏位，只记录在 chargeBreakdown JSON 的 rule 阵列里
+ * （key === "COMPANY_COMMISSION"），这里精确只加总那一条。资料量不大（不是 Uber 等级），
+ * 直接抓符合日期范围的 Snapshot 在 JS 里加总，不需要额外的资料库栏位或 migration。
+ */
+export async function getCompanyCommissionSummary({ dateFrom, dateTo }: CompanyCommissionSummaryParams) {
+  const snapshots = await prisma.revenueSharingSnapshot.findMany({
+    where: {
+      createdAt: {
+        gte: dateFrom ? parseLocalDateOnly(dateFrom) : undefined,
+        lte: dateTo ? endOfLocalDay(parseLocalDateOnly(dateTo)) : undefined
+      }
+    },
+    select: { chargeBreakdown: true }
+  });
+
+  let companyCommissionCents = 0;
+  for (const snapshot of snapshots) {
+    const breakdown = snapshot.chargeBreakdown as { rule?: { key: string; amountCents: number }[] };
+    const entry = breakdown?.rule?.find((r) => r.key === "COMPANY_COMMISSION");
+    companyCommissionCents += entry?.amountCents ?? 0;
+  }
+
+  return { companyCommissionCents, bookingCount: snapshots.length };
 }
 
 /** Wallet Detail：这张 Booking 的 Revenue Sharing Snapshot（Finalize 时自动）发放的 Wallet Transaction。 */

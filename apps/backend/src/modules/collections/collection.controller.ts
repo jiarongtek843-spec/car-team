@@ -25,9 +25,20 @@ const voidSchema = z.object({
   reason: z.string().min(1)
 });
 
+const summaryQuerySchema = z.object({
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional()
+});
+
 export async function list(req: Request, res: Response) {
   const query = listQuerySchema.parse(req.query);
   const result = await collectionService.listCollections(query);
+  res.json(result);
+}
+
+export async function summary(req: Request, res: Response) {
+  const query = summaryQuerySchema.parse(req.query);
+  const result = await collectionService.getCollectionSummary(query);
   res.json(result);
 }
 

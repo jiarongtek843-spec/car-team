@@ -9,6 +9,11 @@ const historyQuerySchema = z.object({
   pageSize: z.coerce.number().int().positive().max(100).default(20)
 });
 
+const summaryQuerySchema = z.object({
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional()
+});
+
 export async function preview(req: Request, res: Response) {
   const bookingId = parseIdParam(req.params.bookingId);
   const result = await revenueSharingService.previewRevenueSharing(bookingId);
@@ -30,6 +35,12 @@ export async function getSnapshot(req: Request, res: Response) {
 export async function history(req: Request, res: Response) {
   const query = historyQuerySchema.parse(req.query);
   const result = await revenueSharingService.listRevenueHistory(query);
+  res.json(result);
+}
+
+export async function commissionSummary(req: Request, res: Response) {
+  const query = summaryQuerySchema.parse(req.query);
+  const result = await revenueSharingService.getCompanyCommissionSummary(query);
   res.json(result);
 }
 

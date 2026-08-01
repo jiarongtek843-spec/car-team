@@ -11,6 +11,10 @@ export interface CompanySettings {
   defaultCommissionValue: number;
   allowManualLegAllocation: boolean;
   requireDriverAccept: boolean;
+  // Revenue Sharing（后端已有，UI 目前只在 Overview 页面用来标示比例，Company Settings
+  // 页面本身没有编辑这两个栏位的表单——见 Round4 "移除Commission设定区块"）
+  companyCommissionType: CommissionType;
+  companyCommissionValue: number;
   // GPS
   gpsUploadIntervalSeconds: number;
   connectionLostTimeoutSeconds: number;

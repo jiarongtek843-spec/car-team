@@ -11,6 +11,7 @@ import { AccountSettingsModal } from "../modules/auth/components/AccountSettings
 const { Header, Content } = Layout;
 
 const NAV_ITEMS: { key: string; label: ReactNode; permission: PermissionKey }[] = [
+  { key: "/overview", label: <Link to="/overview">总览</Link>, permission: PERMISSIONS.COLLECTION_READ },
   { key: "/dispatch", label: <Link to="/dispatch">Dispatch Center</Link>, permission: PERMISSIONS.DISPATCH_READ },
   { key: "/dispatch/map", label: <Link to="/dispatch/map">Live Map</Link>, permission: PERMISSIONS.DISPATCH_READ },
   { key: "/", label: <Link to="/">Booking</Link>, permission: PERMISSIONS.BOOKING_READ },
@@ -77,7 +78,7 @@ export function AppLayout() {
             color: "#fff",
             fontWeight: 600,
             marginRight: 32,
-            flex: isMobile ? 1 : undefined,
+            flexGrow: isMobile ? 1 : 0,
             flexShrink: 0,
             whiteSpace: "nowrap"
           }}

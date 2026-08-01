@@ -13,6 +13,12 @@ revenueSharingRouter.get(
   requirePermission(PERMISSIONS.REVENUE_SHARING_READ),
   asyncHandler(revenueSharingController.history)
 );
+// 一定要在 "/:bookingId" 之前注册，不然 Express 会把 "summary" 当成 bookingId 参数吃掉。
+revenueSharingRouter.get(
+  "/summary",
+  requirePermission(PERMISSIONS.REVENUE_SHARING_READ),
+  asyncHandler(revenueSharingController.commissionSummary)
+);
 revenueSharingRouter.get(
   "/:bookingId",
   requirePermission(PERMISSIONS.REVENUE_SHARING_READ),

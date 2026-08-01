@@ -21,6 +21,7 @@ import { AdminGpsDashboardPage } from "./modules/gps/AdminGpsDashboardPage";
 import { DispatchCenterPage } from "./modules/dispatch/DispatchCenterPage";
 import { LiveDispatchMapPage } from "./modules/liveMap/LiveDispatchMapPage";
 import { CompanySettingsPage } from "./modules/companySettings/CompanySettingsPage";
+import { OverviewPage } from "./modules/overview/OverviewPage";
 import { PERMISSIONS } from "./common/permissions";
 
 function App() {
@@ -40,6 +41,14 @@ function App() {
           element={
             <RequirePermission permission={PERMISSIONS.BOOKING_READ}>
               <BookingListPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/overview"
+          element={
+            <RequirePermission permission={PERMISSIONS.COLLECTION_READ}>
+              <OverviewPage />
             </RequirePermission>
           }
         />

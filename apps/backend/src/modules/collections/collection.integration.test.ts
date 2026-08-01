@@ -353,3 +353,53 @@ describe("Collection module (Module 4 scenarios)", () => {
     expect(previewAfterVerify.excludedCollections.some((c) => c.id === unverified.id)).toBe(false);
   });
 });
+
+describe("getCollectionSummary（老板总览）", () => {
+  it("只加总 VERIFIED/SETTLED，还没 Verify 的和已作废的都不算——用差值断言，避免跟其他测试留下的资料打架", async () => {
+    const driver = await createTestDriver("Summary Verified Driver");
+    driverIds.push(driver.id);
+    const booking = await createTestBooking("SummaryVerifiedCollection");
+
+    const before = await collectionService.getCollectionSummary({});
+
+    const verified = await collectionService.createCollection(
+      { bookingId: booking.id, driverId: driver.id, purpose: "OTHER", amountCents: 3000, paymentMethod: "CASH" },
+      systemActor
+    );
+    await collectionService.verifyCollection(verified.id, systemActor);
+
+    const unverified = await collectionService.createCollection(
+      { bookingId: booking.id, driverId: driver.id, purpose: "OTHER", amountCents: 9999, paymentMethod: "CASH" },
+      systemActor
+    );
+
+    const voided = await collectionService.createCollection(
+      { bookingId: booking.id, driverId: driver.id, purpose: "OTHER", amountCents: 8888, paymentMethod: "CASH" },
+      systemActor
+    );
+    await collectionService.voidCollection(voided.id, "test void", systemActor);
+
+    const after = await collectionService.getCollectionSummary({});
+
+    expect(after.totalAmountCents - before.totalAmountCents).toBe(3000);
+    expect(after.count - before.count).toBe(1);
+    expect(unverified.status).toBe("COLLECTED");
+  });
+
+  it("dateFrom/dateTo 之外的 Collection 不会被算进去", async () => {
+    const driver = await createTestDriver("Summary Date Range Driver");
+    driverIds.push(driver.id);
+    const booking = await createTestBooking("SummaryDateRangeCollection");
+
+    const verified = await collectionService.createCollection(
+      { bookingId: booking.id, driverId: driver.id, purpose: "OTHER", amountCents: 4200, paymentMethod: "CASH" },
+      systemActor
+    );
+    await collectionService.verifyCollection(verified.id, systemActor);
+
+    const farFuture = await collectionService.getCollectionSummary({ dateFrom: "2099-01-01", dateTo: "2099-01-02" });
+
+    expect(farFuture.totalAmountCents).toBe(0);
+    expect(farFuture.count).toBe(0);
+  });
+});

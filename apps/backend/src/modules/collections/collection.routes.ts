@@ -9,6 +9,12 @@ export const collectionRouter = Router();
 collectionRouter.use(requireAuth);
 
 collectionRouter.get("/", requirePermission(PERMISSIONS.COLLECTION_READ), asyncHandler(collectionController.list));
+// 一定要在 "/:id" 之前注册，不然 Express 会把 "summary" 当成 id 参数吃掉。
+collectionRouter.get(
+  "/summary",
+  requirePermission(PERMISSIONS.COLLECTION_READ),
+  asyncHandler(collectionController.summary)
+);
 collectionRouter.get(
   "/:id",
   requirePermission(PERMISSIONS.COLLECTION_READ),

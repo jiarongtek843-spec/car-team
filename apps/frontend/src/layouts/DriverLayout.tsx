@@ -56,7 +56,7 @@ export function DriverLayout() {
             color: "#fff",
             fontWeight: 600,
             marginRight: 32,
-            flex: isMobile ? 1 : undefined,
+            flexGrow: isMobile ? 1 : 0,
             flexShrink: 0,
             whiteSpace: "nowrap"
           }}

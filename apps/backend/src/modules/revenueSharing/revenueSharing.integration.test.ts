@@ -350,3 +350,45 @@ describe("getRevenueSnapshot / listRevenueHistory", () => {
     expect(history.total).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe("getCompanyCommissionSummary（老板总览）", () => {
+  it("加总多笔 Booking 的公司抽成——用差值断言，避免跟其他测试留下的 Snapshot 打架", async () => {
+    await setRule({
+      companyCommissionType: "PERCENTAGE",
+      companyCommissionValue: 15,
+      dispatcherCommissionType: "PERCENTAGE",
+      dispatcherCommissionValue: 5
+    });
+
+    const before = await revenueSharingService.getCompanyCommissionSummary({});
+
+    const booking1 = await createTestBooking(10000);
+    bookingIds.push(booking1.id);
+    await revenueSharingService.finalizeRevenueSharing(booking1.id, systemActor);
+
+    const booking2 = await createTestBooking(20000);
+    bookingIds.push(booking2.id);
+    await revenueSharingService.finalizeRevenueSharing(booking2.id, systemActor);
+
+    const after = await revenueSharingService.getCompanyCommissionSummary({});
+
+    // booking1: 10000 * 15% = 1500；booking2: 20000 * 15% = 3000；不是 companyRevenueCents
+    // （那个还包含 nonParticipatingCompanyCents，这里刻意只验证纯抽成的加总）。
+    expect(after.companyCommissionCents - before.companyCommissionCents).toBe(4500);
+    expect(after.bookingCount - before.bookingCount).toBe(2);
+  });
+
+  it("dateFrom/dateTo 之外的 Snapshot 不会被算进去", async () => {
+    const booking = await createTestBooking(10000);
+    bookingIds.push(booking.id);
+    await revenueSharingService.finalizeRevenueSharing(booking.id, systemActor);
+
+    const farFuture = await revenueSharingService.getCompanyCommissionSummary({
+      dateFrom: "2099-01-01",
+      dateTo: "2099-01-02"
+    });
+
+    expect(farFuture.companyCommissionCents).toBe(0);
+    expect(farFuture.bookingCount).toBe(0);
+  });
+});

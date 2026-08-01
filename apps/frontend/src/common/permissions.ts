@@ -6,7 +6,8 @@ export const ROLE_KEYS = {
   OWNER: "OWNER",
   MANAGER: "MANAGER",
   DISPATCHER: "DISPATCHER",
-  DRIVER: "DRIVER"
+  DRIVER: "DRIVER",
+  FINANCE: "FINANCE"
 } as const;
 
 export type RoleKey = (typeof ROLE_KEYS)[keyof typeof ROLE_KEYS];
@@ -33,7 +34,10 @@ export const PERMISSIONS = {
   DRIVER_SETTLEMENT_SELF: "driverSettlement:self",
   NOTIFICATION_READ: "notification:read",
   NOTIFICATION_WRITE: "notification:write",
-  DRIVER_NOTIFICATION_SELF: "driverNotification:self"
+  DRIVER_NOTIFICATION_SELF: "driverNotification:self",
+  REVENUE_SHARING_READ: "revenueSharing:read",
+  REVENUE_SHARING_PREVIEW: "revenueSharing:preview",
+  REVENUE_SHARING_FINALIZE: "revenueSharing:finalize"
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
