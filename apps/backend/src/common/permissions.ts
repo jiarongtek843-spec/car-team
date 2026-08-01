@@ -13,7 +13,8 @@ export const ROLE_KEYS = {
   OWNER: "OWNER",
   MANAGER: "MANAGER",
   DISPATCHER: "DISPATCHER",
-  DRIVER: "DRIVER"
+  DRIVER: "DRIVER",
+  FINANCE: "FINANCE"
 } as const;
 
 export type RoleKey = (typeof ROLE_KEYS)[keyof typeof ROLE_KEYS];
@@ -126,6 +127,17 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]> = {
     PERMISSIONS.DRIVER_SETTLEMENT_SELF,
     PERMISSIONS.COMPANY_SETTINGS_READ,
     PERMISSIONS.DRIVER_NOTIFICATION_SELF
+  ],
+  // 只看财务总数的老板/记帐帐号——完全没有 booking/driver/dispatch/gps 权限，
+  // 也没有任何 write（含 REVENUE_SHARING_FINALIZE，那是不可逆动作，不给「只看」角色）。
+  FINANCE: [
+    PERMISSIONS.COMPANY_SETTINGS_READ,
+    PERMISSIONS.WALLET_READ,
+    PERMISSIONS.SETTLEMENT_READ,
+    PERMISSIONS.COLLECTION_READ,
+    PERMISSIONS.REVENUE_SHARING_READ,
+    PERMISSIONS.REVENUE_SHARING_PREVIEW,
+    PERMISSIONS.NOTIFICATION_READ
   ]
 };
 
@@ -149,5 +161,10 @@ export const DEFAULT_ROLES: { key: RoleKey; name: string; description: string }[
     key: ROLE_KEYS.DRIVER,
     name: "Driver",
     description: "司机，只能查看/操作自己的工作、GPS、收入、代收款、结算纪录。"
+  },
+  {
+    key: ROLE_KEYS.FINANCE,
+    name: "Finance",
+    description: "只看财务总数（抽成/分润、Wallet、Settlement、Collection、Company Settings 抽成比例），不能碰派单/司机资料，没有任何 write 权限。"
   }
 ];

@@ -3,7 +3,7 @@ import { prisma } from "../../config/prisma.js";
 import { DEFAULT_ROLE_PERMISSIONS, ROLE_KEYS } from "../../common/permissions.js";
 
 describe("RBAC migration data (Module 7)", () => {
-  it("seeds exactly the 4 roles with the permission sets defined in permissions.ts", async () => {
+  it("seeds exactly the 5 roles with the permission sets defined in permissions.ts", async () => {
     for (const roleKey of Object.values(ROLE_KEYS)) {
       const role = await prisma.role.findUniqueOrThrow({
         where: { key: roleKey },

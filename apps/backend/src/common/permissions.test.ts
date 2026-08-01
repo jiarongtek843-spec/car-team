@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_ROLE_PERMISSIONS, DEFAULT_ROLES, PERMISSIONS, ROLE_KEYS } from "./permissions.js";
 
 describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
-  it("defines exactly the 4 roles the product decided on", () => {
+  it("defines exactly the 5 roles the product decided on", () => {
     expect(DEFAULT_ROLES.map((r) => r.key).sort()).toEqual(
-      [ROLE_KEYS.OWNER, ROLE_KEYS.MANAGER, ROLE_KEYS.DISPATCHER, ROLE_KEYS.DRIVER].sort()
+      [ROLE_KEYS.OWNER, ROLE_KEYS.MANAGER, ROLE_KEYS.DISPATCHER, ROLE_KEYS.DRIVER, ROLE_KEYS.FINANCE].sort()
     );
   });
 
@@ -90,5 +90,31 @@ describe("DEFAULT_ROLE_PERMISSIONS matrix", () => {
     expect(driver).not.toContain(PERMISSIONS.REVENUE_SHARING_READ);
     expect(driver).not.toContain(PERMISSIONS.REVENUE_SHARING_PREVIEW);
     expect(driver).not.toContain(PERMISSIONS.REVENUE_SHARING_FINALIZE);
+  });
+
+  it("FINANCE only sees read-only financial totals — no booking/driver/dispatch/gps access and no write of any kind", () => {
+    const finance = DEFAULT_ROLE_PERMISSIONS.FINANCE;
+    expect(finance.sort()).toEqual(
+      [
+        PERMISSIONS.COMPANY_SETTINGS_READ,
+        PERMISSIONS.WALLET_READ,
+        PERMISSIONS.SETTLEMENT_READ,
+        PERMISSIONS.COLLECTION_READ,
+        PERMISSIONS.REVENUE_SHARING_READ,
+        PERMISSIONS.REVENUE_SHARING_PREVIEW,
+        PERMISSIONS.NOTIFICATION_READ
+      ].sort()
+    );
+    expect(finance).not.toContain(PERMISSIONS.BOOKING_READ);
+    expect(finance).not.toContain(PERMISSIONS.BOOKING_WRITE);
+    expect(finance).not.toContain(PERMISSIONS.DRIVER_READ);
+    expect(finance).not.toContain(PERMISSIONS.DRIVER_WRITE);
+    expect(finance).not.toContain(PERMISSIONS.DISPATCH_READ);
+    expect(finance).not.toContain(PERMISSIONS.GPS_READ);
+    expect(finance).not.toContain(PERMISSIONS.WALLET_WRITE);
+    expect(finance).not.toContain(PERMISSIONS.SETTLEMENT_WRITE);
+    expect(finance).not.toContain(PERMISSIONS.COLLECTION_WRITE);
+    expect(finance).not.toContain(PERMISSIONS.COMPANY_SETTINGS_WRITE);
+    expect(finance).not.toContain(PERMISSIONS.REVENUE_SHARING_FINALIZE);
   });
 });
