@@ -157,7 +157,14 @@ export async function deleteDriver(id: number, actorUserId: number, confirmPassw
       return deleted;
     });
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
+    // Postgres 的 ON DELETE RESTRICT 违反是 SQLSTATE 23001（restrict_violation），Prisma
+    // 只把预设的 23503（foreign_key_violation）映射成有型别的 P2003——这里的外键全部是
+    // 明确写 RESTRICT，所以实际丢出来的是没有 code 的 PrismaClientUnknownRequestError，
+    // 之前只接 P2003 会漏接这个，变成 500 吓到使用者。
+    const isRestrictViolation =
+      (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") ||
+      (err instanceof Error && err.message.includes("violates RESTRICT setting of foreign key constraint"));
+    if (isRestrictViolation) {
       throw new ConflictError(
         "This driver has related records (jobs, wallet, settlement, or GPS history) and cannot be deleted"
       );
