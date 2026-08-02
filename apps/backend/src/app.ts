@@ -27,6 +27,7 @@ import { errorHandler } from "./common/errorHandler.js";
 import { requireAuth } from "./modules/auth/auth.middleware.js";
 import { asyncHandler } from "./common/asyncHandler.js";
 import * as collectionController from "./modules/collections/collection.controller.js";
+import { apiRateLimiter } from "./common/rateLimit.js";
 
 export const app = express();
 
@@ -47,6 +48,17 @@ app.use(sessionMiddleware);
 app.use("/api", (req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();
+});
+
+// 全局限流：防止有人写脚本/工具照分页把整个资料库扫一遍（见 common/rateLimit.ts）。
+// /api/health 排除在外——Railway 的 healthcheck 会固定频率打这支，不能被误挡导致
+// 部署被判定成不健康而重启。
+app.use("/api", (req, res, next) => {
+  if (req.path === "/health") {
+    next();
+    return;
+  }
+  apiRateLimiter(req, res, next);
 });
 
 // Mobile UAT Bug Fix：Collection Proof 图片之前是靠 express.static 完全公开挂在 /uploads——
